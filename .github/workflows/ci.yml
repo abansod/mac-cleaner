@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync and smoke-test
+        run: |
+          uv sync
+          uv run mac-cleaner --version
+          uv run mac-cleaner categories
+          uv build
+          test -n "$(ls dist/*.whl)"
+          test -n "$(ls dist/*.tar.gz)"

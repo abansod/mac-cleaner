@@ -1,0 +1,139 @@
+name: Release & Homebrew tap
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build/publish (e.g. v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-brew-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Python package
+    runs-on: macos-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: meta
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          if [[ -z "${TAG}" ]]; then
+            echo "No tag provided" >&2
+            exit 1
+          fi
+          if [[ "${TAG}" != v* ]]; then
+            echo "Tag must start with v (got ${TAG})" >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${TAG} (${VERSION})"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync & verify
+        run: |
+          uv sync
+          uv run mac-cleaner --version
+          uv run mac-cleaner categories
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ steps.meta.outputs.tag }}
+          path: dist/*
+
+      - name: Attach artifacts to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          tag_name: ${{ steps.meta.outputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  homebrew:
+    name: Publish Homebrew formula to tap
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main (formula lives here)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Update Formula/mac-cleaner.rb
+        run: |
+          chmod +x scripts/update-homebrew-formula.sh
+          ./scripts/update-homebrew-formula.sh \
+            "${{ needs.build.outputs.tag }}" \
+            "${{ github.repository }}" \
+            Formula/mac-cleaner.rb
+          echo "----- Formula -----"
+          cat Formula/mac-cleaner.rb
+
+      - name: Commit formula to this repository
+        if: ${{ vars.HOMEBREW_TAP == '' || vars.HOMEBREW_TAP == github.repository }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/mac-cleaner.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date."
+            exit 0
+          fi
+          git commit -m "chore(brew): bump mac-cleaner to ${{ needs.build.outputs.tag }}"
+          git push origin HEAD:main
+
+      - name: Publish formula to external tap
+        if: ${{ vars.HOMEBREW_TAP != '' && vars.HOMEBREW_TAP != github.repository }}
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP_REPO: ${{ vars.HOMEBREW_TAP }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          if [[ -z "${TAP_TOKEN}" ]]; then
+            echo "HOMEBREW_TAP is set to ${TAP_REPO} but HOMEBREW_TAP_TOKEN secret is missing." >&2
+            exit 1
+          fi
+
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" tap
+          mkdir -p tap/Formula
+          cp Formula/mac-cleaner.rb tap/Formula/mac-cleaner.rb
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/mac-cleaner.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date in tap."
+            exit 0
+          fi
+          git commit -m "chore(brew): bump mac-cleaner to ${TAG}"
+          git push origin HEAD

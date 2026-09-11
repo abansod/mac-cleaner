@@ -24,10 +24,30 @@ You always review results first. Delete an **entire group**, **multiple files**,
 
 ## Install
 
-### With uv (recommended)
+### Homebrew (recommended on macOS)
+
+This repo doubles as a Homebrew tap (`Formula/mac-cleaner.rb`). After the first GitHub Release, install with:
 
 ```bash
-git clone https://github.com/akshaybansod/mac-cleaner.git
+brew tap abansod/mac-cleaner https://github.com/abansod/mac-cleaner
+brew install mac-cleaner
+```
+
+Upgrade later with:
+
+```bash
+brew update
+brew upgrade mac-cleaner
+```
+
+> Publishing: create a GitHub Release tagged `vX.Y.Z`. The [Release & Homebrew tap](.github/workflows/release-brew.yml) workflow builds the package, attaches artifacts to the release, and bumps the formula `url`/`sha256` on `main` (or on an external tap if configured).
+
+Optional: to publish the formula to a **separate** tap instead of this repo, set repository variable `HOMEBREW_TAP` (e.g. `abansod/homebrew-tap`) and secret `HOMEBREW_TAP_TOKEN` (PAT with `repo` scope on that tap).
+
+### With uv
+
+```bash
+git clone https://github.com/abansod/mac-cleaner.git
 cd mac-cleaner
 uv sync
 uv run mac-cleaner
@@ -36,7 +56,7 @@ uv run mac-cleaner
 ### With pip + venv
 
 ```bash
-git clone https://github.com/akshaybansod/mac-cleaner.git
+git clone https://github.com/abansod/mac-cleaner.git
 cd mac-cleaner
 python3 -m venv .venv
 source .venv/bin/activate
