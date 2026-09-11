@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mac-cleaner"
+version = "1.0.0"
+description = "macOS CLI cleaner — junk, clutter, and duplicate file removal"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Mac Cleaner contributors" }]
+keywords = ["macos", "cleaner", "disk", "duplicates", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "rich>=13.7.0",
+    "typer>=0.12.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/akshaybansod/mac-cleaner"
+Repository = "https://github.com/akshaybansod/mac-cleaner"
+Issues = "https://github.com/akshaybansod/mac-cleaner/issues"
+
+[project.scripts]
+mac-cleaner = "mac_cleaner.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mac_cleaner"]
+
+[tool.uv]
+package = true
