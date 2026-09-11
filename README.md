@@ -26,7 +26,9 @@ You always review results first. Move with the arrow keys, mark files, and confi
 
 ### Homebrew (recommended)
 
-This repo doubles as a Homebrew tap (`Formula/mac-cleaner.rb`). After the first GitHub Release, install with:
+This repo doubles as a Homebrew tap (`Formula/mac-cleaner.rb`). Stable installs download a prebuilt universal macOS binary from GitHub Releases (no Rust or Cargo). `brew install --HEAD` still compiles from source and needs Rust.
+
+After a GitHub Release, install with:
 
 ```bash
 brew tap abansod/mac-cleaner https://github.com/abansod/mac-cleaner
@@ -40,7 +42,7 @@ brew update
 brew upgrade mac-cleaner
 ```
 
-> Publishing: create a GitHub Release tagged `vX.Y.Z`. The [Release & Homebrew tap](.github/workflows/release-brew.yml) workflow builds a macOS binary, attaches it to the release, and bumps the formula `url`/`sha256` on `main` (or on an external tap if configured).
+> Publishing: create a GitHub Release tagged `vX.Y.Z` (crate version in `Cargo.toml` must match). The [Release & Homebrew tap](.github/workflows/release-brew.yml) workflow builds a universal macOS binary, attaches `mac-cleaner-vX.Y.Z-macos.tar.gz` to the release, and bumps the formula `url`/`sha256`/`version` on `main` (or on an external tap if configured).
 
 Optional: to publish the formula to a **separate** tap instead of this repo, set repository variable `HOMEBREW_TAP` (e.g. `abansod/homebrew-tap`) and secret `HOMEBREW_TAP_TOKEN` (PAT with `repo` scope on that tap).
 

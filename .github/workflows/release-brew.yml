@@ -49,6 +49,8 @@ jobs:
           echo "Publishing ${TAG} (${VERSION})"
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
 
       - name: Test
         run: |
@@ -56,26 +58,34 @@ jobs:
           cargo run -- --version
           cargo run -- categories
 
-      - name: Build release binary
-        run: cargo build --release
-
-      - name: Stage artifact
+      - name: Build universal release archive
         run: |
-          mkdir -p dist
-          cp target/release/mac-cleaner "dist/mac-cleaner-${{ steps.meta.outputs.tag }}-macos"
-          shasum -a 256 "dist/mac-cleaner-${{ steps.meta.outputs.tag }}-macos" > dist/SHA256SUMS
+          TAG="${{ steps.meta.outputs.tag }}"
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          mkdir -p dist/stage
+          lipo -create \
+            target/aarch64-apple-darwin/release/mac-cleaner \
+            target/x86_64-apple-darwin/release/mac-cleaner \
+            -output dist/stage/mac-cleaner
+          lipo -info dist/stage/mac-cleaner
+          tar -C dist/stage -czf "dist/mac-cleaner-${TAG}-macos.tar.gz" mac-cleaner
+          shasum -a 256 "dist/mac-cleaner-${TAG}-macos.tar.gz" | tee dist/SHA256SUMS
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v6
         with:
           name: dist-${{ steps.meta.outputs.tag }}
-          path: dist/*
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
 
       - name: Attach artifacts to GitHub Release
-        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/*
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
           tag_name: ${{ steps.meta.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
