@@ -26,7 +26,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
           fetch-depth: 0
@@ -49,7 +49,7 @@ jobs:
           echo "Publishing ${TAG} (${VERSION})"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -63,14 +63,14 @@ jobs:
         run: uv build
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dist-${{ steps.meta.outputs.tag }}
           path: dist/*
 
       - name: Attach artifacts to GitHub Release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           tag_name: ${{ steps.meta.outputs.tag }}
@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main (formula lives here)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
           fetch-depth: 0
