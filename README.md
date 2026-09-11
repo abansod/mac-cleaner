@@ -1,6 +1,11 @@
-# Mac Cleaner — CleanMyMac-style CLI for macOS
+# Mac Cleaner
 
-Free disk space by finding and removing:
+Interactive CLI for macOS that finds junk, clutter, and duplicate files so you can free disk space. You always review results first — nothing is deleted until you confirm.
+
+[![CI](https://github.com/abansod/mac-cleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/abansod/mac-cleaner/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+## What it finds
 
 - **System & user caches**
 - **Logs** and temporary files
@@ -14,21 +19,19 @@ Free disk space by finding and removing:
 - **Duplicate files** (content-hashed)
 - **Unused language files** in `~/Applications`
 
-You always review results first. Move with the arrow keys, mark files, and confirm before anything is deleted.
+Move with the arrow keys, mark files, and confirm before anything is deleted.
 
 ## Requirements
 
 - macOS
 - A terminal (for the interactive UI)
-- [Rust](https://rustup.rs/) only if you build from source — Homebrew users do not need it
+- [Rust](https://rustup.rs/) only if you build from source — Homebrew and release binaries do not need it
 
 ## Install
 
 ### Homebrew (recommended)
 
-This repo doubles as a Homebrew tap (`Formula/mac-cleaner.rb`). Stable installs download a prebuilt universal macOS binary from GitHub Releases (no Rust or Cargo). `brew install --HEAD` still compiles from source and needs Rust.
-
-After a GitHub Release, install with:
+Installs a prebuilt universal macOS binary (Apple Silicon and Intel):
 
 ```bash
 brew tap abansod/mac-cleaner https://github.com/abansod/mac-cleaner
@@ -42,9 +45,15 @@ brew update
 brew upgrade mac-cleaner
 ```
 
-> Publishing: create a GitHub Release tagged `vX.Y.Z` (crate version in `Cargo.toml` must match). The [Release & Homebrew tap](.github/workflows/release-brew.yml) workflow builds a universal macOS binary, attaches `mac-cleaner-vX.Y.Z-macos.tar.gz` to the release, and bumps the formula `url`/`sha256`/`version` on `main` (or on an external tap if configured).
+To compile the latest `main` instead of a release (`--HEAD` needs Rust):
 
-Optional: to publish the formula to a **separate** tap instead of this repo, set repository variable `HOMEBREW_TAP` (e.g. `abansod/homebrew-tap`) and secret `HOMEBREW_TAP_TOKEN` (PAT with `repo` scope on that tap).
+```bash
+brew install --HEAD mac-cleaner
+```
+
+### GitHub Releases
+
+Download `mac-cleaner-vX.Y.Z-macos.tar.gz` from [Releases](https://github.com/abansod/mac-cleaner/releases), unpack it, and put `mac-cleaner` on your `PATH`.
 
 ### From source
 
@@ -104,13 +113,14 @@ mac-cleaner clean --smart -y   # careful
 | `↑` `↓` / `j` `k` | Move highlight |
 | `Enter` | Open category or group · delete marked (or highlighted) files |
 | `Space` | Mark / unmark a file |
+| `c` | Clear marks |
 | `K` | Keep the highlighted file, delete the rest (duplicates) |
 | `d` | Delete the current group |
 | `a` | Delete every group in this category |
 | `g` / `G` | Jump to first / last |
 | `r` | Scan again |
 | `Esc` / `b` | Back |
-| `?` | Help |
+| `?` / `h` | Help |
 | `q` | Quit |
 
 Click a row to highlight it. A confirm dialog appears before every delete (`←` `→` or `y`/`n`).
@@ -135,6 +145,10 @@ cargo clippy --all-targets -- -D warnings
 ```
 
 `Cargo.lock` is the source of truth for reproducible builds.
+
+## Contributing
+
+Bug reports and pull requests are welcome on [GitHub](https://github.com/abansod/mac-cleaner). Please run the development commands above before opening a PR.
 
 ## License
 

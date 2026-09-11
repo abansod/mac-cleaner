@@ -1,5 +1,5 @@
 class MacCleaner < Formula
-  desc "CleanMyMac-style CLI for junk, clutter, and duplicate cleanup on macOS"
+  desc "macOS CLI cleaner for junk, clutter, and duplicate files"
   homepage "https://github.com/abansod/mac-cleaner"
   version "0.0.3"
   url "https://github.com/abansod/mac-cleaner/releases/download/v0.0.3/mac-cleaner-v0.0.3-macos.tar.gz"
@@ -7,8 +7,6 @@ class MacCleaner < Formula
   license "MIT"
 
   depends_on :macos
-  # Source-archive installs still compile; dropped when url points at the universal binary tarball.
-  depends_on "rust" => :build if stable.url.include?("/archive/refs/tags/")
 
   head do
     url "https://github.com/abansod/mac-cleaner.git", branch: "main"
@@ -16,7 +14,7 @@ class MacCleaner < Formula
   end
 
   def install
-    if build.head? || File.exist?("Cargo.toml")
+    if build.head?
       system "cargo", "install", *std_cargo_args
     else
       bin.install "mac-cleaner"

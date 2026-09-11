@@ -3,3 +3,7 @@
 *.log
 .idea/
 .vscode/
+.venv/
+.cursor/
+__pycache__/
+*.pyc
