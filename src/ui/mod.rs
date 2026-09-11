@@ -45,6 +45,7 @@ pub fn run(kind: ScanKind) -> Result<()> {
 fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
     while !app.should_quit {
         app.poll_scan();
+        app.poll_delete();
         terminal.draw(|frame| render::draw(frame, app))?;
         if event::poll(Duration::from_millis(80))? {
             match event::read()? {

@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
+use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
@@ -13,6 +14,7 @@ use crate::safety::format_bytes;
 
 pub enum Screen {
     Scanning,
+    Deleting,
     Empty,
     Categories,
     Groups {
@@ -32,7 +34,7 @@ pub struct Confirm {
 }
 
 pub enum PendingAction {
-    Paths(Vec<PathBuf>),
+    Paths { paths: Vec<PathBuf>, bytes: u64 },
     Group(String),
     Category(Category),
 }
@@ -44,6 +46,15 @@ pub enum ScanEvent {
         total: usize,
     },
     Done(ScanResult),
+}
+
+pub enum DeleteEvent {
+    Progress {
+        message: String,
+        done: u64,
+        total: u64,
+    },
+    Done(DeleteOutcome),
 }
 
 pub struct App {
@@ -58,9 +69,15 @@ pub struct App {
     pub scan_message: String,
     pub scan_index: usize,
     pub scan_total: usize,
+    pub delete_message: String,
+    pub delete_done: u64,
+    pub delete_total: u64,
+    pub delete_started: Instant,
     pub list_area: Rect,
     pub should_quit: bool,
     rx: Option<Receiver<ScanEvent>>,
+    delete_rx: Option<Receiver<DeleteEvent>>,
+    pre_delete_screen: Option<Screen>,
 }
 
 impl App {
@@ -77,9 +94,15 @@ impl App {
             scan_message: "Starting…".into(),
             scan_index: 0,
             scan_total: 1,
+            delete_message: String::new(),
+            delete_done: 0,
+            delete_total: 1,
+            delete_started: Instant::now(),
             list_area: Rect::default(),
             should_quit: false,
             rx: None,
+            delete_rx: None,
+            pre_delete_screen: None,
         };
         app.begin_scan();
         app
@@ -141,6 +164,43 @@ impl App {
         }
     }
 
+    pub fn poll_delete(&mut self) {
+        let Some(rx) = self.delete_rx.take() else {
+            return;
+        };
+        loop {
+            match rx.try_recv() {
+                Ok(DeleteEvent::Progress {
+                    message,
+                    done,
+                    total,
+                }) => {
+                    self.delete_message = message;
+                    self.delete_done = done;
+                    self.delete_total = total.max(1);
+                }
+                Ok(DeleteEvent::Done(outcome)) => {
+                    if let Some(prev) = self.pre_delete_screen.take() {
+                        self.screen = prev;
+                    }
+                    self.after_delete(outcome);
+                    return;
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    self.delete_rx = Some(rx);
+                    return;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    if let Some(prev) = self.pre_delete_screen.take() {
+                        self.screen = prev;
+                    }
+                    self.status = "Deletion stopped unexpectedly.".into();
+                    return;
+                }
+            }
+        }
+    }
+
     fn finish_scan(&mut self) {
         self.result.prune_empty();
         if self.result.groups.is_empty() {
@@ -163,7 +223,7 @@ impl App {
 
     pub fn current_len(&self) -> usize {
         match self.screen {
-            Screen::Scanning | Screen::Empty => 0,
+            Screen::Scanning | Screen::Deleting | Screen::Empty => 0,
             Screen::Categories => self.result.categories_sorted().len(),
             Screen::Groups { category } => self.result.groups_in(category).len(),
             Screen::Files { ref group_key, .. } => self
@@ -224,8 +284,9 @@ impl App {
             return;
         }
 
-        if matches!(self.screen, Screen::Scanning) {
-            if matches!(key.code, KeyCode::Char('q'))
+        if matches!(self.screen, Screen::Scanning | Screen::Deleting) {
+            if matches!(self.screen, Screen::Scanning)
+                && matches!(key.code, KeyCode::Char('q'))
                 && key.modifiers.contains(KeyModifiers::CONTROL)
             {
                 self.should_quit = true;
@@ -265,7 +326,10 @@ impl App {
     }
 
     pub fn handle_mouse(&mut self, mouse: MouseEvent) {
-        if self.help || self.confirm.is_some() || matches!(self.screen, Screen::Scanning) {
+        if self.help
+            || self.confirm.is_some()
+            || matches!(self.screen, Screen::Scanning | Screen::Deleting)
+        {
             return;
         }
         if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
@@ -294,7 +358,7 @@ impl App {
                 }
             }
             Screen::Categories => self.should_quit = true,
-            Screen::Scanning => {}
+            Screen::Scanning | Screen::Deleting => {}
         }
     }
 
@@ -326,7 +390,7 @@ impl App {
                 self.select(0);
             }
             Screen::Files { .. } => self.delete_marked_or_current(),
-            Screen::Empty | Screen::Scanning => {}
+            Screen::Empty | Screen::Scanning | Screen::Deleting => {}
         }
     }
 
@@ -389,7 +453,7 @@ impl App {
             title: format!("Delete {} item(s) ({})?", items.len(), format_bytes(size)),
             body,
             yes: false,
-            action: PendingAction::Paths(paths),
+            action: PendingAction::Paths { paths, bytes: size },
         });
     }
 
@@ -503,7 +567,7 @@ impl App {
                 .take(8)
                 .collect(),
             yes: false,
-            action: PendingAction::Paths(paths),
+            action: PendingAction::Paths { paths, bytes: size },
         });
     }
 
@@ -514,27 +578,50 @@ impl App {
         if !confirm.yes {
             return;
         }
-        let outcome = match confirm.action {
-            PendingAction::Paths(paths) => engine::delete_items(&paths),
+        let (paths, bytes) = match confirm.action {
+            PendingAction::Paths { paths, bytes } => (paths, bytes),
             PendingAction::Group(key) => {
-                let paths = self
-                    .result
-                    .group(&key)
+                let group = self.result.group(&key);
+                let bytes = group.map(|g| g.size()).unwrap_or(0);
+                let paths = group
                     .map(|g| g.items.iter().map(|i| i.path.clone()).collect::<Vec<_>>())
                     .unwrap_or_default();
-                engine::delete_items(&paths)
+                (paths, bytes)
             }
             PendingAction::Category(category) => {
-                let paths: Vec<PathBuf> = self
-                    .result
-                    .groups_in(category)
+                let groups = self.result.groups_in(category);
+                let bytes: u64 = groups.iter().map(|g| g.size()).sum();
+                let paths: Vec<PathBuf> = groups
                     .into_iter()
                     .flat_map(|g| g.items.iter().map(|i| i.path.clone()))
                     .collect();
-                engine::delete_items(&paths)
+                (paths, bytes)
             }
         };
-        self.after_delete(outcome);
+        self.begin_delete(paths, bytes);
+    }
+
+    fn begin_delete(&mut self, paths: Vec<PathBuf>, bytes: u64) {
+        self.delete_message = "Starting…".into();
+        self.delete_done = 0;
+        self.delete_total = bytes.max(1);
+        self.delete_started = Instant::now();
+        self.pre_delete_screen = Some(std::mem::replace(&mut self.screen, Screen::Deleting));
+
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let tx_progress = tx.clone();
+            let outcome =
+                engine::delete_items_with_progress(&paths, bytes, &mut |message, done, total| {
+                    let _ = tx_progress.send(DeleteEvent::Progress {
+                        message: message.to_string(),
+                        done,
+                        total,
+                    });
+                });
+            let _ = tx.send(DeleteEvent::Done(outcome));
+        });
+        self.delete_rx = Some(rx);
     }
 
     fn after_delete(&mut self, outcome: DeleteOutcome) {
@@ -636,6 +723,16 @@ impl App {
                 return (
                     self.scan_message.clone(),
                     "Scanning your home folder…".into(),
+                )
+            }
+            Screen::Deleting => {
+                return (
+                    self.delete_message.clone(),
+                    format!(
+                        "Freed {} of {}",
+                        format_bytes(self.delete_done),
+                        format_bytes(self.delete_total)
+                    ),
                 )
             }
         }

@@ -187,7 +187,21 @@ fn clean(kind: ScanKind, category: Option<String>, yes: bool) -> Result<()> {
         .iter()
         .flat_map(|g| g.items.iter().map(|i| i.path.clone()))
         .collect();
-    let outcome = engine::delete_items(&paths);
+    let mut last = String::new();
+    let outcome =
+        engine::delete_items_with_progress(&paths, total, &mut |message, done, expected| {
+            let line = format!(
+                "{message}  {} / {}",
+                format_bytes(done),
+                format_bytes(expected)
+            );
+            if line != last {
+                eprint!("\r\x1b[K{line}");
+                let _ = io::stderr().flush();
+                last = line;
+            }
+        });
+    eprintln!();
     for err in &outcome.errors {
         eprintln!("{err}");
     }

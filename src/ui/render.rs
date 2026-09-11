@@ -28,6 +28,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     match app.screen {
         Screen::Scanning => draw_scanning(frame, chunks[1], app),
+        Screen::Deleting => draw_deleting(frame, chunks[1], app),
         Screen::Empty => draw_empty(frame, chunks[1]),
         _ => draw_main(frame, chunks[1], app),
     }
@@ -77,6 +78,49 @@ fn draw_scanning(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         ((app.scan_index + 1) as f64 / app.scan_total as f64).clamp(0.0, 1.0)
     };
+    draw_progress_screen(
+        frame,
+        area,
+        " Scanning ",
+        ratio,
+        format!("{} / {}", app.scan_index + 1, app.scan_total),
+        &app.scan_message,
+        ACCENT,
+    );
+}
+
+fn draw_deleting(frame: &mut Frame, area: Rect, app: &App) {
+    let ratio = if app.delete_total == 0 {
+        0.0
+    } else {
+        (app.delete_done as f64 / app.delete_total as f64).clamp(0.0, 1.0)
+    };
+    let pct = (ratio * 100.0).round() as u16;
+    let spinner = spinner_frame(app.delete_started.elapsed().as_millis());
+    draw_progress_screen(
+        frame,
+        area,
+        &format!(" Deleting {spinner} "),
+        ratio,
+        format!(
+            "{pct}%  ·  {} / {}",
+            format_bytes(app.delete_done),
+            format_bytes(app.delete_total)
+        ),
+        &app.delete_message,
+        DANGER,
+    );
+}
+
+fn draw_progress_screen(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    ratio: f64,
+    label: String,
+    message: &str,
+    color: Color,
+) {
     let layout = Layout::vertical([
         Constraint::Fill(1),
         Constraint::Length(3),
@@ -88,21 +132,26 @@ fn draw_scanning(frame: &mut Frame, area: Rect, app: &App) {
     let gauge = Gauge::default()
         .block(
             Block::default()
-                .title(" Scanning ")
+                .title(title)
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(ACCENT)),
+                .border_style(Style::default().fg(color)),
         )
-        .gauge_style(Style::default().fg(ACCENT).bg(Color::Black))
+        .gauge_style(Style::default().fg(color).bg(Color::Black))
         .ratio(ratio)
-        .label(format!("{} / {}", app.scan_index + 1, app.scan_total));
+        .label(label);
     frame.render_widget(gauge, layout[1]);
     frame.render_widget(
-        Paragraph::new(app.scan_message.as_str())
+        Paragraph::new(message)
             .alignment(Alignment::Center)
             .style(Style::default().fg(Color::White)),
         layout[2],
     );
+}
+
+fn spinner_frame(elapsed_ms: u128) -> &'static str {
+    const FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    FRAMES[(elapsed_ms / 80) as usize % FRAMES.len()]
 }
 
 fn draw_empty(frame: &mut Frame, area: Rect) {
@@ -284,6 +333,7 @@ fn list_items(app: &App) -> Vec<ListItem<'static>> {
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     let keys = match app.screen {
         Screen::Scanning => "  scanning…   ctrl+q abort".to_string(),
+        Screen::Deleting => "  deleting… please wait".to_string(),
         Screen::Empty => "  r rescan   q quit   ? help".to_string(),
         Screen::Categories => "  ↑↓/jk move   ⏎ open   r rescan   ? help   q quit".to_string(),
         Screen::Groups { .. } => {
