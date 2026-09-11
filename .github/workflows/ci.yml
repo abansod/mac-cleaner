@@ -10,14 +10,13 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v7
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          enable-cache: true
-      - name: Sync and smoke-test
+          components: rustfmt, clippy
+      - name: Check, test, and smoke
         run: |
-          uv sync
-          uv run mac-cleaner --version
-          uv run mac-cleaner categories
-          uv build
-          test -n "$(ls dist/*.whl)"
-          test -n "$(ls dist/*.tar.gz)"
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cargo run -- --version
+          cargo run -- categories

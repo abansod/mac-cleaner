@@ -1,0 +1,25 @@
+[package]
+name = "mac-cleaner"
+version = "2.0.0"
+edition = "2021"
+description = "macOS CLI cleaner — junk, clutter, and duplicate file removal"
+license = "MIT"
+repository = "https://github.com/abansod/mac-cleaner"
+readme = "README.md"
+keywords = ["macos", "cleaner", "disk", "duplicates", "cli"]
+categories = ["command-line-utilities"]
+rust-version = "1.74"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
+libc = "0.2"
+ratatui = "0.29"
+sha2 = "0.10"
+walkdir = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

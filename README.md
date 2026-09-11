@@ -14,17 +14,17 @@ Free disk space by finding and removing:
 - **Duplicate files** (content-hashed)
 - **Unused language files** in `~/Applications`
 
-You always review results first. Delete an **entire group**, **multiple files**, or keep a few and delete the rest.
+You always review results first. Move with the arrow keys, mark files, and confirm before anything is deleted.
 
 ## Requirements
 
 - macOS
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip + venv
+- A terminal (for the interactive UI)
+- [Rust](https://rustup.rs/) only if you build from source — Homebrew users do not need it
 
 ## Install
 
-### Homebrew (recommended on macOS)
+### Homebrew (recommended)
 
 This repo doubles as a Homebrew tap (`Formula/mac-cleaner.rb`). After the first GitHub Release, install with:
 
@@ -40,28 +40,23 @@ brew update
 brew upgrade mac-cleaner
 ```
 
-> Publishing: create a GitHub Release tagged `vX.Y.Z`. The [Release & Homebrew tap](.github/workflows/release-brew.yml) workflow builds the package, attaches artifacts to the release, and bumps the formula `url`/`sha256` on `main` (or on an external tap if configured).
+> Publishing: create a GitHub Release tagged `vX.Y.Z`. The [Release & Homebrew tap](.github/workflows/release-brew.yml) workflow builds a macOS binary, attaches it to the release, and bumps the formula `url`/`sha256` on `main` (or on an external tap if configured).
 
 Optional: to publish the formula to a **separate** tap instead of this repo, set repository variable `HOMEBREW_TAP` (e.g. `abansod/homebrew-tap`) and secret `HOMEBREW_TAP_TOKEN` (PAT with `repo` scope on that tap).
 
-### With uv
+### From source
 
 ```bash
 git clone https://github.com/abansod/mac-cleaner.git
 cd mac-cleaner
-uv sync
-uv run mac-cleaner
+cargo install --path .
+mac-cleaner
 ```
 
-### With pip + venv
+Or run without installing:
 
 ```bash
-git clone https://github.com/abansod/mac-cleaner.git
-cd mac-cleaner
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-mac-cleaner
+cargo run --release
 ```
 
 ## Usage
@@ -69,73 +64,75 @@ mac-cleaner
 Interactive full scan (default):
 
 ```bash
-uv run mac-cleaner
-# or, with an activated venv:
 mac-cleaner
-python -m mac_cleaner
 ```
 
-Smart scan (faster junk-only subset):
+Faster junk-only scan (skips duplicates, leftovers, large files, languages):
 
 ```bash
-uv run mac-cleaner scan --mode smart
+mac-cleaner --smart
 ```
 
 Duplicates only:
 
 ```bash
-uv run mac-cleaner duplicates
-uv run mac-cleaner duplicates --path ~/Pictures
+mac-cleaner duplicates
+mac-cleaner duplicates --path ~/Pictures
 ```
 
-List results without interactive delete:
+Print findings without the UI:
 
 ```bash
-uv run mac-cleaner scan --mode full --list
+mac-cleaner list
+mac-cleaner list --smart
+mac-cleaner scan --mode full --list
 ```
 
 Non-interactive clean (confirm required unless `-y`):
 
 ```bash
-uv run mac-cleaner clean --category "User Caches"
-uv run mac-cleaner clean --smart -y   # careful
+mac-cleaner clean --category "User Caches"
+mac-cleaner clean --smart -y   # careful
 ```
 
 ### Interactive controls
 
 | Key | Action |
 |-----|--------|
-| `1–N` | Open category / group |
-| `1,3,5-7` | Delete selected files (comma + ranges) |
-| `k 1` / `k 1,3` | **Keep** these files, delete the rest |
-| `s` | Mark mode — toggle files, then `d` to delete |
-| `d` | Delete entire group (or marked files) |
-| `a` | Delete all groups in category |
-| `n` / `p` | Next / previous page |
-| `b` | Back |
-| `r` | Rescan |
-| `h` | Help |
+| `↑` `↓` / `j` `k` | Move highlight |
+| `Enter` | Open category or group · delete marked (or highlighted) files |
+| `Space` | Mark / unmark a file |
+| `K` | Keep the highlighted file, delete the rest (duplicates) |
+| `d` | Delete the current group |
+| `a` | Delete every group in this category |
+| `g` / `G` | Jump to first / last |
+| `r` | Scan again |
+| `Esc` / `b` | Back |
+| `?` | Help |
 | `q` | Quit |
 
-**Keep example (duplicates):** open a duplicate set, then type `k 1` to keep the first copy and remove the others.
+Click a row to highlight it. A confirm dialog appears before every delete (`←` `→` or `y`/`n`).
+
+**Duplicates:** open a set, highlight the copy to keep, press `K`.
 
 ## Safety
 
 - Only deletes paths under your home directory (plus writable `/tmp` and some `/Library/Caches`).
 - Refuses protected system prefixes (`/System`, `/usr`, …).
 - Asks for confirmation before every delete (unless `--yes`).
-- Duplicate “delete group” removes **all** copies — prefer `k 1` or deleting individual extras.
+- Duplicate “delete group” removes **all** copies — prefer `K` to keep one.
 
 ## Development
 
 ```bash
-uv sync
-uv run mac-cleaner --version
-uv lock                    # refresh uv.lock after dependency changes
-uv export --no-dev --no-hashes -o requirements.txt   # for pip users
+cargo build
+cargo test
+cargo run -- --version
+cargo fmt
+cargo clippy --all-targets -- -D warnings
 ```
 
-`uv.lock` is the source of truth for reproducible installs. `requirements.txt` is exported for classic pip workflows.
+`Cargo.lock` is the source of truth for reproducible builds.
 
 ## License
 

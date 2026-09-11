@@ -6,13 +6,11 @@ class MacCleaner < Formula
   license "MIT"
   head "https://github.com/abansod/mac-cleaner.git", branch: "main"
 
-  depends_on "python@3.12"
   depends_on :macos
+  depends_on "rust" => :build
 
   def install
-    venv = virtualenv_create(libexec, "python3.12")
-    venv.pip_install buildpath
-    bin.install_symlink libexec/"bin/mac-cleaner"
+    system "cargo", "install", *std_cargo_args
   end
 
   test do
