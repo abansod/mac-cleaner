@@ -1,8 +1,8 @@
 class MacCleaner < Formula
   desc "CleanMyMac-style CLI for junk, clutter, and duplicate cleanup on macOS"
   homepage "https://github.com/abansod/mac-cleaner"
-  url "https://github.com/abansod/mac-cleaner/archive/refs/tags/v0.0.1.tar.gz"
-  sha256 "4a1c8925ee99dced87332107f5cf7edb40dd7483fd6afe1d78addb2943252556"
+  url "https://github.com/abansod/mac-cleaner/archive/refs/tags/v0.0.2.tar.gz"
+  sha256 "0de8f641150a6e25f29a62060e129f3bf9fb2ba51574023e4bf7cf17ddb604ac"
   license "MIT"
   head "https://github.com/abansod/mac-cleaner.git", branch: "main"
 
