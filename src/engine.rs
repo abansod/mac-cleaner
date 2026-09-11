@@ -39,10 +39,6 @@ pub fn scan(kind: ScanKind, progress: &mut dyn FnMut(&str, usize, usize)) -> Sca
     result
 }
 
-pub fn delete_items(items: &[PathBuf]) -> DeleteOutcome {
-    delete_items_with_progress(items, 0, &mut |_, _, _| {})
-}
-
 pub fn delete_items_with_progress(
     items: &[PathBuf],
     expected_bytes: u64,
@@ -135,7 +131,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let file = dir.join("gone.txt");
         fs::write(&file, vec![0u8; 1024]).unwrap();
-        let outcome = delete_items(&[file.clone()]);
+        let outcome = delete_items_with_progress(std::slice::from_ref(&file), 0, &mut |_, _, _| {});
         assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
         assert_eq!(outcome.removed, 1);
         assert!(!file.exists());

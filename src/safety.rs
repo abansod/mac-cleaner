@@ -127,10 +127,6 @@ pub fn is_safe_to_delete(path: &Path) -> bool {
     false
 }
 
-pub fn delete_path(path: &Path) -> Result<()> {
-    delete_path_with_progress(path, &mut |_, _| {})
-}
-
 /// Delete `path`, calling `on_progress(message, bytes_just_freed)` as space is released.
 pub fn delete_path_with_progress(
     path: &Path,
@@ -293,7 +289,7 @@ mod tests {
 
         let extra = dir.join("plain.txt");
         fs::write(&extra, b"hi").unwrap();
-        delete_path(&extra).unwrap();
+        delete_path_with_progress(&extra, &mut |_, _| {}).unwrap();
         assert!(!extra.exists());
         let _ = fs::remove_dir_all(&dir);
     }
