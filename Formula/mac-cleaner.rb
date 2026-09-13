@@ -1,9 +1,9 @@
 class MacCleaner < Formula
   desc "macOS CLI cleaner for junk, clutter, and duplicate files"
   homepage "https://github.com/abansod/mac-cleaner"
-  version "0.0.3"
-  url "https://github.com/abansod/mac-cleaner/releases/download/v0.0.3/mac-cleaner-v0.0.3-macos.tar.gz"
-  sha256 "765d231dd95d6274f30b1d18ad1d5226cc1edd63533a4a82c077663bb44cf964"
+  version "0.0.4"
+  url "https://github.com/abansod/mac-cleaner/releases/download/v0.0.4/mac-cleaner-v0.0.4-macos.tar.gz"
+  sha256 "859c02f958286f9bb8e53fea0762fc126db4cf716e11e3b76fc7f256778fdba1"
   license "MIT"
 
   depends_on :macos
