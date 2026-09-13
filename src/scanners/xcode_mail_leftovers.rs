@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::models::{Category, FileGroup, FileItem};
@@ -178,137 +177,6 @@ impl Scanner for MailScanner {
     }
 }
 
-const SKIP_SUPPORT: &[&str] = &[
-    "AddressBook",
-    "Apple",
-    "CallHistoryDB",
-    "CallHistoryTransactions",
-    "CloudDocs",
-    "com.apple.sharedfilelist",
-    "CrashReporter",
-    "DifferentialPrivacy",
-    "DiskImages",
-    "FaceTime",
-    "FileProvider",
-    "iCloud",
-    "Knowledge",
-    "MobileSync",
-    "Network",
-    "SyncServices",
-];
-
-pub struct LeftoversScanner;
-
-impl Scanner for LeftoversScanner {
-    fn name(&self) -> &'static str {
-        "App Leftovers"
-    }
-
-    fn scan(&self, progress: &mut dyn FnMut(&str)) -> Vec<FileGroup> {
-        progress("Scanning app leftovers…");
-        let installed = installed_app_names();
-        let mut groups = Vec::new();
-
-        let support = library_dir().join("Application Support");
-        if support.exists() {
-            for child in list_children(&support) {
-                if !child.is_dir() {
-                    continue;
-                }
-                let name = file_name(&child);
-                if name.starts_with('.') || SKIP_SUPPORT.contains(&name.as_str()) {
-                    continue;
-                }
-                if likely_installed(&name, &installed) {
-                    continue;
-                }
-                let size = safe_size(&child);
-                if size < 1024 * 50 {
-                    continue;
-                }
-                groups.push(leaf_group(
-                    format!("left-as:{name}"),
-                    Category::Leftovers,
-                    name.clone(),
-                    "Possible leftover — verify before deleting",
-                    child,
-                    size,
-                    name,
-                ));
-            }
-        }
-
-        let saved = library_dir().join("Saved Application State");
-        if saved.exists() {
-            for child in list_children(&saved) {
-                let name = file_name(&child);
-                let Some(bundle) = name.strip_suffix(".savedState") else {
-                    continue;
-                };
-                if likely_installed(bundle, &installed) {
-                    continue;
-                }
-                let size = safe_size(&child);
-                if size < 1024 {
-                    continue;
-                }
-                groups.push(leaf_group(
-                    format!("left-state:{bundle}"),
-                    Category::Leftovers,
-                    bundle.to_string(),
-                    "Saved Application State leftover",
-                    child,
-                    size,
-                    bundle.to_string(),
-                ));
-            }
-        }
-
-        groups
-    }
-}
-
-fn installed_app_names() -> HashSet<String> {
-    let mut names = HashSet::new();
-    for apps_dir in [
-        PathBuf::from("/Applications"),
-        home_dir().join("Applications"),
-    ] {
-        if !apps_dir.exists() {
-            continue;
-        }
-        for child in list_children(&apps_dir) {
-            if child.extension().and_then(|e| e.to_str()) != Some("app") {
-                continue;
-            }
-            if let Some(stem) = child.file_stem().and_then(|s| s.to_str()) {
-                names.insert(stem.to_lowercase());
-            }
-            if let Some(name) = child.file_name().and_then(|s| s.to_str()) {
-                names.insert(name.to_lowercase());
-            }
-        }
-    }
-    names
-}
-
-fn likely_installed(folder_name: &str, installed: &HashSet<String>) -> bool {
-    let n = folder_name.to_lowercase();
-    if installed.contains(&n) {
-        return true;
-    }
-    let replaced = n.replace('_', ".");
-    let last = replaced.rsplit('.').next().unwrap_or(&n);
-    for candidate in [&n, last] {
-        for app in installed {
-            if candidate.contains(app.as_str()) || app.contains(candidate) {
-                return true;
-            }
-        }
-    }
-    n.starts_with("com.apple.") || n.starts_with("apple")
-}
-
 fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -329,12 +197,6 @@ fn leaf_group(
         category,
         title,
         description: description.to_string(),
-        items: vec![FileItem {
-            path,
-            size,
-            category,
-            reason: description.to_string(),
-            group_key,
-        }],
+        items: vec![FileItem::file(path, size, category, description, group_key)],
     }
 }

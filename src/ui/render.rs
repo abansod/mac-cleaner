@@ -45,7 +45,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
 fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     let reclaim = format_bytes(app.result.total_size());
-    let title = Line::from(vec![
+    let mut spans = vec![
         Span::styled(
             " Mac Cleaner ",
             Style::default()
@@ -64,7 +64,20 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
             ),
             Style::default().fg(SIZE).add_modifier(Modifier::BOLD),
         ),
-    ]);
+    ];
+    if let Some(disk) = &app.result.disk {
+        spans.push(Span::raw("   "));
+        spans.push(Span::styled(
+            format!(
+                "{} free of {} ({})",
+                format_bytes(disk.container_free),
+                format_bytes(disk.container_bytes),
+                disk.mount
+            ),
+            Style::default().fg(MUTED),
+        ));
+    }
+    let title = Line::from(spans);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)

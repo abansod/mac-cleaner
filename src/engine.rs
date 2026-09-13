@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::models::ScanResult;
-use crate::safety::{delete_path_with_progress, is_safe_to_delete, safe_size};
+use crate::macos_space;
+use crate::models::{FileItem, ScanResult};
+use crate::safety::safe_size;
 use crate::scanners::{all_scanners, duplicate_scanner, smart_scanners, Scanner};
 
 #[derive(Debug, Clone)]
@@ -17,6 +18,7 @@ pub struct DeleteOutcome {
     pub removed: usize,
     pub freed: u64,
     pub errors: Vec<String>,
+    pub removed_paths: Vec<PathBuf>,
 }
 
 pub fn scan(kind: ScanKind, progress: &mut dyn FnMut(&str, usize, usize)) -> ScanResult {
@@ -36,11 +38,13 @@ pub fn scan(kind: ScanKind, progress: &mut dyn FnMut(&str, usize, usize)) -> Sca
         result.groups.extend(groups);
     }
     result.prune_empty();
+    result.disk = macos_space::disk_pressure();
+    result.warnings = macos_space::scan_warnings(matches!(kind, ScanKind::Full));
     result
 }
 
 pub fn delete_items_with_progress(
-    items: &[PathBuf],
+    items: &[FileItem],
     expected_bytes: u64,
     progress: &mut dyn FnMut(&str, u64, u64),
 ) -> DeleteOutcome {
@@ -48,7 +52,10 @@ pub fn delete_items_with_progress(
         expected_bytes
     } else {
         progress("Calculating size…", 0, 1);
-        items.iter().map(|p| safe_size(p)).sum()
+        items
+            .iter()
+            .map(|item| item.size.max(safe_size(&item.path)))
+            .sum()
     };
     let total = total.max(1);
     progress("Deleting…", 0, total);
@@ -58,19 +65,16 @@ pub fn delete_items_with_progress(
     let mut last_send = Instant::now() - Duration::from_secs(1);
     let mut last_message = String::new();
 
-    for path in items {
-        if !path.exists() && path.symlink_metadata().is_err() {
-            continue;
-        }
-        if !is_safe_to_delete(path) {
-            outcome
-                .errors
-                .push(format!("Refused (protected): {}", path.display()));
+    for item in items {
+        if matches!(item.op, crate::models::ReclaimOp::DeletePath)
+            && !item.path.exists()
+            && item.path.symlink_metadata().is_err()
+        {
             continue;
         }
 
         let mut item_freed = 0u64;
-        let result = delete_path_with_progress(path, &mut |message, bytes| {
+        let result = macos_space::reclaim(item, &mut |message, bytes| {
             item_freed = item_freed.saturating_add(bytes);
             done = done.saturating_add(bytes);
             let force = message != last_message;
@@ -83,8 +87,17 @@ pub fn delete_items_with_progress(
         });
         outcome.freed = outcome.freed.saturating_add(item_freed);
         match result {
-            Ok(()) => outcome.removed += 1,
-            Err(err) => outcome.errors.push(format!("{}: {err}", path.display())),
+            Ok(freed) => {
+                if item_freed == 0 && freed > 0 {
+                    outcome.freed = outcome.freed.saturating_add(freed);
+                    done = done.saturating_add(freed);
+                }
+                outcome.removed += 1;
+                outcome.removed_paths.push(item.path.clone());
+            }
+            Err(err) => outcome
+                .errors
+                .push(format!("{}: {err}", item.path.display())),
         }
         let display_total = total.max(done).max(1);
         progress(
@@ -131,7 +144,14 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let file = dir.join("gone.txt");
         fs::write(&file, vec![0u8; 1024]).unwrap();
-        let outcome = delete_items_with_progress(std::slice::from_ref(&file), 0, &mut |_, _, _| {});
+        let item = FileItem::file(
+            file.clone(),
+            1024,
+            crate::models::Category::Temp,
+            "test",
+            "test",
+        );
+        let outcome = delete_items_with_progress(std::slice::from_ref(&item), 0, &mut |_, _, _| {});
         assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
         assert_eq!(outcome.removed, 1);
         assert!(!file.exists());

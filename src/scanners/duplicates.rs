@@ -123,13 +123,13 @@ impl Scanner for DuplicateScanner {
                 let Ok(meta) = path.metadata() else {
                     continue;
                 };
-                items.push(FileItem {
+                items.push(FileItem::file(
                     path,
-                    size: meta.len(),
-                    category: Category::Duplicates,
-                    reason: format!("Duplicate set #{dup_idx}"),
-                    group_key: digest.chars().take(12).collect(),
-                });
+                    meta.len(),
+                    Category::Duplicates,
+                    format!("Duplicate set #{dup_idx}"),
+                    digest.chars().take(12).collect::<String>(),
+                ));
             }
             if items.len() < 2 {
                 continue;
@@ -212,13 +212,13 @@ impl Scanner for LargeOldScanner {
                     continue;
                 }
                 let age_days = now.saturating_sub(age_ref) / 86400;
-                found.push(FileItem {
-                    path: path.clone(),
-                    size: meta.len(),
-                    category: Category::LargeOld,
-                    reason: format!("≥50MB, untouched ~{age_days}d"),
-                    group_key: path.display().to_string(),
-                });
+                found.push(FileItem::file(
+                    path.clone(),
+                    meta.len(),
+                    Category::LargeOld,
+                    format!("≥50MB, untouched ~{age_days}d"),
+                    path.display().to_string(),
+                ));
             }
         }
 
@@ -296,13 +296,13 @@ impl Scanner for LanguageFileScanner {
                 if size < 100 {
                     continue;
                 }
-                items.push(FileItem {
+                items.push(FileItem::file(
                     path,
                     size,
-                    category: Category::Language,
-                    reason: format!("Localization in {app_name}"),
-                    group_key: app_name.clone(),
-                });
+                    Category::Language,
+                    format!("Localization in {app_name}"),
+                    app_name.clone(),
+                ));
             }
             if items.is_empty() {
                 continue;

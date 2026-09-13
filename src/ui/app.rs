@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Instant;
@@ -9,7 +8,7 @@ use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
 
 use crate::engine::{self, DeleteOutcome, ScanKind};
-use crate::models::{Category, ScanResult};
+use crate::models::{Category, FileItem, ScanResult};
 use crate::safety::format_bytes;
 
 pub enum Screen {
@@ -34,7 +33,7 @@ pub struct Confirm {
 }
 
 pub enum PendingAction {
-    Paths { paths: Vec<PathBuf>, bytes: u64 },
+    Items { items: Vec<FileItem>, bytes: u64 },
     Group(String),
     Category(Category),
 }
@@ -206,10 +205,16 @@ impl App {
         if self.result.groups.is_empty() {
             self.screen = Screen::Empty;
             self.status = "Nothing to clean — your Mac looks tidy.".into();
+            if !self.result.warnings.is_empty() {
+                self.status = format!("{}  {}", self.status, self.result.warnings.join("  "));
+            }
         } else {
             self.screen = Screen::Categories;
             self.select(0);
             self.status = engine::summarize(&self.result);
+            if !self.result.warnings.is_empty() {
+                self.status = format!("{}  {}", self.status, self.result.warnings.join("  "));
+            }
         }
     }
 
@@ -435,12 +440,14 @@ impl App {
             v.sort_unstable();
             v
         };
-        let items: Vec<_> = indices.iter().filter_map(|&i| group.items.get(i)).collect();
+        let items: Vec<FileItem> = indices
+            .iter()
+            .filter_map(|&i| group.items.get(i).cloned())
+            .collect();
         if items.is_empty() {
             return;
         }
         let size: u64 = items.iter().map(|i| i.size).sum();
-        let paths: Vec<PathBuf> = items.iter().map(|i| i.path.clone()).collect();
         let mut body: Vec<String> = items
             .iter()
             .take(8)
@@ -449,11 +456,12 @@ impl App {
         if items.len() > 8 {
             body.push(format!("… and {} more", items.len() - 8));
         }
+        body.extend(reclaim_warnings(&items));
         self.confirm = Some(Confirm {
             title: format!("Delete {} item(s) ({})?", items.len(), format_bytes(size)),
             body,
             yes: false,
-            action: PendingAction::Paths { paths, bytes: size },
+            action: PendingAction::Items { items, bytes: size },
         });
     }
 
@@ -491,12 +499,26 @@ impl App {
         } else {
             ""
         };
+        let body = match &self.screen {
+            Screen::Groups { category } => self
+                .result
+                .groups_in(*category)
+                .get(self.selected())
+                .map(|g| reclaim_warnings(&g.items))
+                .unwrap_or_default(),
+            Screen::Files { group_key, .. } => self
+                .result
+                .group(group_key)
+                .map(|g| reclaim_warnings(&g.items))
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
         self.confirm = Some(Confirm {
             title: format!(
                 "Delete group «{title}» ({}, {count} items)?{extra}",
                 format_bytes(size)
             ),
-            body: Vec::new(),
+            body,
             yes: false,
             action: PendingAction::Group(key),
         });
@@ -511,6 +533,17 @@ impl App {
             return;
         }
         let size: u64 = groups.iter().map(|g| g.size()).sum();
+        let items: Vec<FileItem> = groups
+            .iter()
+            .flat_map(|g| g.items.iter().cloned())
+            .collect();
+        let mut body = reclaim_warnings(&items);
+        if matches!(category, Category::LocalSnapshots | Category::IosBackups) {
+            body.insert(
+                0,
+                "Each item is re-checked against an allowlist before anything is removed.".into(),
+            );
+        }
         self.confirm = Some(Confirm {
             title: format!(
                 "Delete ALL {} groups in {} ({})?",
@@ -518,7 +551,7 @@ impl App {
                 category.label(),
                 format_bytes(size)
             ),
-            body: Vec::new(),
+            body,
             yes: false,
             action: PendingAction::Category(category),
         });
@@ -537,20 +570,14 @@ impl App {
         }
         let keep = self.selected().min(group.items.len() - 1);
         let keep_path = group.items[keep].path.clone();
-        let paths: Vec<PathBuf> = group
+        let items: Vec<FileItem> = group
             .items
             .iter()
             .enumerate()
             .filter(|(i, _)| *i != keep)
-            .map(|(_, item)| item.path.clone())
+            .map(|(_, item)| item.clone())
             .collect();
-        let size: u64 = group
-            .items
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != keep)
-            .map(|(_, item)| item.size)
-            .sum();
+        let size: u64 = items.iter().map(|item| item.size).sum();
         self.confirm = Some(Confirm {
             title: format!(
                 "Keep {} and delete {} other copy(ies) ({})?",
@@ -558,16 +585,16 @@ impl App {
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| keep_path.display().to_string()),
-                paths.len(),
+                items.len(),
                 format_bytes(size)
             ),
-            body: paths
+            body: items
                 .iter()
-                .map(|p| p.display().to_string())
+                .map(|item| item.path.display().to_string())
                 .take(8)
                 .collect(),
             yes: false,
-            action: PendingAction::Paths { paths, bytes: size },
+            action: PendingAction::Items { items, bytes: size },
         });
     }
 
@@ -578,30 +605,28 @@ impl App {
         if !confirm.yes {
             return;
         }
-        let (paths, bytes) = match confirm.action {
-            PendingAction::Paths { paths, bytes } => (paths, bytes),
+        let (items, bytes) = match confirm.action {
+            PendingAction::Items { items, bytes } => (items, bytes),
             PendingAction::Group(key) => {
                 let group = self.result.group(&key);
                 let bytes = group.map(|g| g.size()).unwrap_or(0);
-                let paths = group
-                    .map(|g| g.items.iter().map(|i| i.path.clone()).collect::<Vec<_>>())
-                    .unwrap_or_default();
-                (paths, bytes)
+                let items = group.map(|g| g.items.clone()).unwrap_or_default();
+                (items, bytes)
             }
             PendingAction::Category(category) => {
                 let groups = self.result.groups_in(category);
                 let bytes: u64 = groups.iter().map(|g| g.size()).sum();
-                let paths: Vec<PathBuf> = groups
+                let items: Vec<FileItem> = groups
                     .into_iter()
-                    .flat_map(|g| g.items.iter().map(|i| i.path.clone()))
+                    .flat_map(|g| g.items.iter().cloned())
                     .collect();
-                (paths, bytes)
+                (items, bytes)
             }
         };
-        self.begin_delete(paths, bytes);
+        self.begin_delete(items, bytes);
     }
 
-    fn begin_delete(&mut self, paths: Vec<PathBuf>, bytes: u64) {
+    fn begin_delete(&mut self, items: Vec<FileItem>, bytes: u64) {
         self.delete_message = "Starting…".into();
         self.delete_done = 0;
         self.delete_total = bytes.max(1);
@@ -612,7 +637,7 @@ impl App {
         thread::spawn(move || {
             let tx_progress = tx.clone();
             let outcome =
-                engine::delete_items_with_progress(&paths, bytes, &mut |message, done, total| {
+                engine::delete_items_with_progress(&items, bytes, &mut |message, done, total| {
                     let _ = tx_progress.send(DeleteEvent::Progress {
                         message: message.to_string(),
                         done,
@@ -626,6 +651,7 @@ impl App {
 
     fn after_delete(&mut self, outcome: DeleteOutcome) {
         self.marked.clear();
+        self.result.forget_paths(&outcome.removed_paths);
         self.result.prune_empty();
         if outcome.removed > 0 {
             self.status = format!(
@@ -738,6 +764,41 @@ impl App {
         }
         (String::new(), String::new())
     }
+}
+
+fn reclaim_warnings(items: &[FileItem]) -> Vec<String> {
+    use crate::models::ReclaimOp;
+    let mut extra = Vec::new();
+    if items
+        .iter()
+        .any(|item| matches!(item.op, ReclaimOp::TmLocalSnapshot { .. }))
+    {
+        extra.push(
+            "Calls tmutil deletelocalsnapshots with a date only. Does not delete macOS or the sealed boot snapshot.".into(),
+        );
+        extra.push(
+            "You lose that local restore point. Unique APFS reclaim may be less than listed."
+                .into(),
+        );
+    }
+    if items
+        .iter()
+        .any(|item| item.category == Category::IosBackups)
+    {
+        extra.push(
+            "Removes the Finder backup from this Mac only. The iPhone/iPad and macOS are untouched.".into(),
+        );
+        extra.push("You cannot restore that device from this backup afterward.".into());
+    }
+    if items
+        .iter()
+        .any(|item| item.category == Category::MessagesAttachments)
+    {
+        extra.push(
+            "Removes old Messages attachment files. chat.db and other Messages databases are never touched.".into(),
+        );
+    }
+    extra
 }
 
 fn index_from_mouse(area: Rect, state: &ListState, row: u16) -> Option<usize> {

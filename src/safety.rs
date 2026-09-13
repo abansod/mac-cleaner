@@ -16,7 +16,14 @@ const PROTECTED_PREFIXES: &[&str] = &[
     "/bin",
     "/sbin",
     "/private/var/db",
+    "/private/var/vm",
     "/Library/Apple",
+    "/Library/Updates",
+    "/System/Volumes/Preboot",
+    "/System/Volumes/Recovery",
+    "/System/Volumes/VM",
+    "/System/Volumes/Update",
+    "/System/Volumes/iSCPreboot",
 ];
 
 pub fn home_dir() -> PathBuf {
@@ -109,7 +116,7 @@ pub fn is_safe_to_delete(path: &Path) -> bool {
         return false;
     }
     if s.starts_with(&format!("{home_s}/")) {
-        return true;
+        return !crate::macos_space::is_protected_user_data(&resolved);
     }
 
     for prefix in PROTECTED_PREFIXES {
@@ -267,6 +274,32 @@ mod tests {
     fn allows_paths_under_home() {
         let nested = home_dir().join("Library").join("Caches").join("example");
         assert!(is_safe_to_delete(&nested));
+    }
+
+    #[test]
+    fn refuses_keychains_mail_store_and_messages_db() {
+        assert!(!is_safe_to_delete(
+            &home_dir()
+                .join("Library")
+                .join("Keychains")
+                .join("login.keychain-db")
+        ));
+        assert!(!is_safe_to_delete(
+            &home_dir().join("Library").join("Messages").join("chat.db")
+        ));
+        assert!(!is_safe_to_delete(
+            &home_dir()
+                .join("Library")
+                .join("Mail")
+                .join("V10")
+                .join("MailData")
+        ));
+        assert!(is_safe_to_delete(
+            &home_dir()
+                .join("Library")
+                .join("Mail Downloads")
+                .join("x.pdf")
+        ));
     }
 
     #[test]

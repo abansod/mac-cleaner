@@ -17,7 +17,7 @@ use crate::ui;
     long_about = None
 )]
 struct Cli {
-    /// Faster junk-only scan (skips duplicates, leftovers, large files, languages)
+    /// Faster junk-only scan (skips duplicates, orphaned files, large files, languages)
     #[arg(long, short = 's', global = true)]
     smart: bool,
 
@@ -111,6 +111,17 @@ fn print_list(kind: ScanKind) -> Result<()> {
         }
     });
     eprintln!();
+    for warning in &result.warnings {
+        eprintln!("{warning}");
+    }
+    if let Some(disk) = &result.disk {
+        println!(
+            "APFS container {} — {} free of {}",
+            disk.mount,
+            format_bytes(disk.container_free),
+            format_bytes(disk.container_bytes)
+        );
+    }
     if result.groups.is_empty() {
         println!("Nothing found.");
         return Ok(());
@@ -183,13 +194,13 @@ fn clean(kind: ScanKind, category: Option<String>, yes: bool) -> Result<()> {
         return Ok(());
     }
 
-    let paths: Vec<PathBuf> = groups
+    let items: Vec<_> = groups
         .iter()
-        .flat_map(|g| g.items.iter().map(|i| i.path.clone()))
+        .flat_map(|g| g.items.iter().cloned())
         .collect();
     let mut last = String::new();
     let outcome =
-        engine::delete_items_with_progress(&paths, total, &mut |message, done, expected| {
+        engine::delete_items_with_progress(&items, total, &mut |message, done, expected| {
             let line = format!(
                 "{message}  {} / {}",
                 format_bytes(done),

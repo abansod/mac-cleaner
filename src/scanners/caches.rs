@@ -163,12 +163,6 @@ fn single_group(
         category,
         title,
         description: description.into(),
-        items: vec![FileItem {
-            path,
-            size,
-            category,
-            reason: reason.to_string(),
-            group_key,
-        }],
+        items: vec![FileItem::file(path, size, category, reason, group_key)],
     }
 }

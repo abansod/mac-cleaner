@@ -13,14 +13,17 @@ pub enum Category {
     Browser,
     Xcode,
     Mail,
-    Leftovers,
+    OrphanedFiles,
     LargeOld,
     Duplicates,
     Language,
+    LocalSnapshots,
+    IosBackups,
+    MessagesAttachments,
 }
 
 impl Category {
-    pub const ALL: [Category; 13] = [
+    pub const ALL: [Category; 16] = [
         Category::SystemCache,
         Category::UserCache,
         Category::Logs,
@@ -30,10 +33,13 @@ impl Category {
         Category::Browser,
         Category::Xcode,
         Category::Mail,
-        Category::Leftovers,
+        Category::OrphanedFiles,
         Category::LargeOld,
         Category::Duplicates,
         Category::Language,
+        Category::LocalSnapshots,
+        Category::IosBackups,
+        Category::MessagesAttachments,
     ];
 
     pub fn label(self) -> &'static str {
@@ -47,10 +53,13 @@ impl Category {
             Category::Browser => "Browser Caches",
             Category::Xcode => "Xcode Junk",
             Category::Mail => "Mail Downloads",
-            Category::Leftovers => "App Leftovers",
+            Category::OrphanedFiles => "Orphaned Files",
             Category::LargeOld => "Large & Old Files",
             Category::Duplicates => "Duplicate Files",
             Category::Language => "Unused Language Files",
+            Category::LocalSnapshots => "Time Machine Snapshots",
+            Category::IosBackups => "iOS Device Backups",
+            Category::MessagesAttachments => "Messages Attachments",
         }
     }
 
@@ -75,8 +84,8 @@ impl Category {
                 "DerivedData, simulators, SwiftPM, CocoaPods, and other Xcode build junk."
             }
             Category::Mail => "Attachments Mail downloaded for preview.",
-            Category::Leftovers => {
-                "Application Support / saved state for apps that no longer look installed. Verify first."
+            Category::OrphanedFiles => {
+                "Prefs, launch agents, containers, caches, and other Library files for apps that no longer look installed. Verify first."
             }
             Category::LargeOld => {
                 "Files ≥50 MB that have not been touched in about 90 days."
@@ -87,8 +96,27 @@ impl Category {
             Category::Language => {
                 "Non-English .lproj bundles inside apps in ~/Applications."
             }
+            Category::LocalSnapshots => {
+                "Time Machine local snapshots via tmutil. The sealed macOS boot snapshot is never listed."
+            }
+            Category::IosBackups => {
+                "Complete Finder/iTunes device backups. Removes the backup on this Mac only — not the phone, not macOS."
+            }
+            Category::MessagesAttachments => {
+                "Old files under ~/Library/Messages/Attachments. chat.db and other Messages databases are never touched."
+            }
         }
     }
+}
+
+/// How an item is reclaimed. Path delete is never used for APFS snapshots.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReclaimOp {
+    DeletePath,
+    /// `tmutil deletelocalsnapshots <date>` — date must be `YYYY-MM-DD-HHMMSS`.
+    TmLocalSnapshot {
+        date: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -100,12 +128,41 @@ pub struct FileItem {
     pub reason: String,
     #[allow(dead_code)]
     pub group_key: String,
+    pub op: ReclaimOp,
 }
 
 impl FileItem {
-    pub fn exists(&self) -> bool {
-        self.path.exists()
+    pub fn file(
+        path: PathBuf,
+        size: u64,
+        category: Category,
+        reason: impl Into<String>,
+        group_key: impl Into<String>,
+    ) -> Self {
+        Self {
+            path,
+            size,
+            category,
+            reason: reason.into(),
+            group_key: group_key.into(),
+            op: ReclaimOp::DeletePath,
+        }
     }
+
+    pub fn exists(&self) -> bool {
+        match &self.op {
+            ReclaimOp::DeletePath => self.path.exists(),
+            // Snapshot presence is dropped from the scan result after a successful tmutil call.
+            ReclaimOp::TmLocalSnapshot { .. } => true,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DiskPressure {
+    pub mount: String,
+    pub container_bytes: u64,
+    pub container_free: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +195,8 @@ impl FileGroup {
 #[derive(Debug, Clone, Default)]
 pub struct ScanResult {
     pub groups: Vec<FileGroup>,
+    pub warnings: Vec<String>,
+    pub disk: Option<DiskPressure>,
 }
 
 impl ScanResult {
@@ -155,6 +214,16 @@ impl ScanResult {
         }
         self.groups.retain(|group| group.count() > 0);
         self.groups.sort_by_key(|b| Reverse(b.size()));
+    }
+
+    pub fn forget_paths(&mut self, paths: &[PathBuf]) {
+        let gone: std::collections::HashSet<&PathBuf> = paths.iter().collect();
+        if gone.is_empty() {
+            return;
+        }
+        for group in &mut self.groups {
+            group.items.retain(|item| !gone.contains(&item.path));
+        }
     }
 
     pub fn group(&self, key: &str) -> Option<&FileGroup> {

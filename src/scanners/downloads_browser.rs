@@ -75,13 +75,13 @@ impl Scanner for DownloadsJunkScanner {
                     category: Category::Downloads,
                     title: title.clone(),
                     description: format!("~/Downloads — {age_days} days old"),
-                    items: vec![FileItem {
-                        path: child,
-                        size: meta.len(),
-                        category: Category::Downloads,
-                        reason: format!("Installer/archive unused for {age_days} days"),
-                        group_key: title,
-                    }],
+                    items: vec![FileItem::file(
+                        child,
+                        meta.len(),
+                        Category::Downloads,
+                        format!("Installer/archive unused for {age_days} days"),
+                        title,
+                    )],
                 })
             })
             .collect()
@@ -163,13 +163,13 @@ impl Scanner for BrowserCacheScanner {
                 category: Category::Browser,
                 title: format!("{browser} — {leaf}"),
                 description: format!("{browser} cache data (pages may reload slower once)"),
-                items: vec![FileItem {
+                items: vec![FileItem::file(
                     path,
                     size,
-                    category: Category::Browser,
-                    reason: format!("{browser} cache"),
-                    group_key: format!("{browser}:{leaf}"),
-                }],
+                    Category::Browser,
+                    format!("{browser} cache"),
+                    format!("{browser}:{leaf}"),
+                )],
             });
         }
         groups

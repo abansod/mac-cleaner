@@ -45,13 +45,13 @@ impl Scanner for LogScanner {
                     category: Category::Logs,
                     title: name.clone(),
                     description: format!("Logs in {}", root.display()),
-                    items: vec![FileItem {
-                        path: child,
+                    items: vec![FileItem::file(
+                        child,
                         size,
-                        category: Category::Logs,
-                        reason: "Log files".into(),
-                        group_key: name,
-                    }],
+                        Category::Logs,
+                        "Log files",
+                        name,
+                    )],
                 });
             }
         }
@@ -89,13 +89,13 @@ impl Scanner for TrashScanner {
                     category: Category::Trash,
                     title: name.clone(),
                     description: "~/Trash — permanently delete".into(),
-                    items: vec![FileItem {
-                        path: child,
+                    items: vec![FileItem::file(
+                        child,
                         size,
-                        category: Category::Trash,
-                        reason: "Item in Trash".into(),
-                        group_key: name,
-                    }],
+                        Category::Trash,
+                        "Item in Trash",
+                        name,
+                    )],
                 })
             })
             .collect()

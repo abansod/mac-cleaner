@@ -14,7 +14,10 @@ Interactive CLI for macOS that finds junk, clutter, and duplicate files so you c
 - **Browser caches** (Safari, Chrome, Firefox, Edge, Brave, Arc)
 - **Xcode junk** (DerivedData, simulators, SwiftPM, CocoaPods)
 - **Mail downloads**
-- **App leftovers** (Application Support / saved state for missing apps)
+- **Time Machine local snapshots** (via `tmutil`; the sealed macOS boot snapshot is never listed)
+- **iOS/iPadOS Finder backups** (whole device backup folders only)
+- **Old Messages attachments** (never `chat.db` or other Messages databases)
+- **Orphaned files** (prefs, launch agents, containers, caches, Application Support, and other Library leftovers for apps that are no longer installed)
 - **Large & old files**
 - **Duplicate files** (content-hashed)
 - **Unused language files** in `~/Applications`
@@ -78,7 +81,7 @@ Interactive full scan (default):
 mac-cleaner
 ```
 
-Faster junk-only scan (skips duplicates, leftovers, large files, languages):
+Faster junk-only scan (skips duplicates, orphaned files, large files, languages):
 
 ```bash
 mac-cleaner --smart
@@ -130,7 +133,10 @@ Click a row to highlight it. A confirm dialog appears before every delete (`←`
 ## Safety
 
 - Only deletes paths under your home directory (plus writable `/tmp` and some `/Library/Caches`).
-- Refuses protected system prefixes (`/System`, `/usr`, …).
+- Refuses protected system prefixes (`/System`, `/usr`, `/private/var/vm`, Preboot/Recovery/VM volumes, …).
+- Refuses macOS user-data stores that would break the OS or iCloud: Keychains, TCC, Mail store, Photos libraries, `chat.db`, Mobile Documents / CloudStorage.
+- Time Machine snapshots are removed only with `tmutil deletelocalsnapshots <YYYY-MM-DD-HHMMSS>` — never `diskutil apfs deleteSnapshot`, never a mount point such as `/`.
+- iOS backups are deleted only as a complete finished device folder, never as individual files inside `MobileSync`.
 - Asks for confirmation before every delete (unless `--yes`).
 - Duplicate “delete group” removes **all** copies — prefer `K` to keep one.
 

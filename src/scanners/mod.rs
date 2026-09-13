@@ -1,7 +1,9 @@
 mod caches;
 mod downloads_browser;
 mod duplicates;
+mod hidden_space;
 mod logs_trash;
+mod orphaned;
 mod xcode_mail_leftovers;
 
 use std::path::PathBuf;
@@ -24,7 +26,10 @@ pub fn all_scanners() -> Vec<Box<dyn Scanner>> {
         Box::new(downloads_browser::BrowserCacheScanner),
         Box::new(xcode_mail_leftovers::XcodeScanner),
         Box::new(xcode_mail_leftovers::MailScanner),
-        Box::new(xcode_mail_leftovers::LeftoversScanner),
+        Box::new(hidden_space::LocalSnapshotScanner),
+        Box::new(hidden_space::IosBackupScanner),
+        Box::new(hidden_space::MessagesAttachmentScanner),
+        Box::new(orphaned::OrphanedFilesScanner),
         Box::new(duplicates::LargeOldScanner::default()),
         Box::new(duplicates::DuplicateScanner::default()),
         Box::new(duplicates::LanguageFileScanner),
@@ -41,6 +46,8 @@ pub fn smart_scanners() -> Vec<Box<dyn Scanner>> {
         Box::new(downloads_browser::BrowserCacheScanner),
         Box::new(xcode_mail_leftovers::XcodeScanner),
         Box::new(xcode_mail_leftovers::MailScanner),
+        Box::new(hidden_space::LocalSnapshotScanner),
+        Box::new(hidden_space::IosBackupScanner),
     ]
 }
 
