@@ -17,10 +17,13 @@ const MUTED: Color = Color::DarkGray;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
+    // Keep enough footer rows that key hints can wrap on a narrow terminal
+    // instead of being clipped by a long status line.
+    let footer_h = footer_height(area, app);
     let chunks = Layout::vertical([
         Constraint::Length(3),
         Constraint::Fill(1),
-        Constraint::Length(3),
+        Constraint::Length(footer_h),
     ])
     .split(area);
 
@@ -343,41 +346,124 @@ fn list_items(app: &App) -> Vec<ListItem<'static>> {
     }
 }
 
-fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
-    let keys = match app.screen {
-        Screen::Scanning => "  scanning…   ctrl+q abort".to_string(),
-        Screen::Deleting => "  deleting… please wait".to_string(),
-        Screen::Empty => "  r rescan   q quit   ? help".to_string(),
-        Screen::Categories => "  ↑↓/jk move   ⏎ open   r rescan   ? help   q quit".to_string(),
-        Screen::Groups { .. } => {
-            "  ↑↓/jk move   ⏎ files   d delete group   a delete all   esc back   q quit".to_string()
-        }
+fn footer_height(area: Rect, app: &App) -> u16 {
+    let inner = area.width.saturating_sub(4);
+    let key_rows = pack_hints(&footer_hints(app), inner).len() as u16;
+    let status_rows =
+        if app.status.is_empty() || matches!(app.screen, Screen::Scanning | Screen::Deleting) {
+            0
+        } else {
+            1
+        };
+    // borders (2) + key rows + optional truncated status
+    (2 + key_rows.max(1) + status_rows).clamp(3, 6)
+}
+
+fn footer_hints(app: &App) -> Vec<(&'static str, String)> {
+    match app.screen {
+        Screen::Scanning => vec![("ctrl+q", "abort".into())],
+        Screen::Deleting => vec![("…", "please wait".into())],
+        Screen::Empty => vec![
+            ("r", "rescan".into()),
+            ("q", "quit".into()),
+            ("?", "help".into()),
+        ],
+        Screen::Categories => vec![
+            ("↑↓/jk", "move".into()),
+            ("⏎", "open".into()),
+            ("r", "rescan".into()),
+            ("?", "help".into()),
+            ("q", "quit".into()),
+        ],
+        Screen::Groups { .. } => vec![
+            ("↑↓/jk", "move".into()),
+            ("⏎", "open".into()),
+            ("d", "delete".into()),
+            ("a", "delete all".into()),
+            ("esc", "back".into()),
+            ("?", "help".into()),
+            ("q", "quit".into()),
+        ],
         Screen::Files { .. } => {
-            let marked = if app.marked.is_empty() {
-                String::new()
+            let delete = if app.marked.is_empty() {
+                "delete".into()
             } else {
-                format!("   {} marked", app.marked.len())
+                format!("delete {} marked", app.marked.len())
             };
-            format!(
-                "  ↑↓/jk move   space mark   ⏎ delete{}   K keep this   d delete group   esc back",
-                marked
-            )
+            vec![
+                ("↑↓/jk", "move".into()),
+                ("space", "mark".into()),
+                ("⏎", delete),
+                ("d", "delete group".into()),
+                ("K", "keep this".into()),
+                ("esc", "back".into()),
+                ("?", "help".into()),
+            ]
         }
-    };
-    let status = if app.status.is_empty() {
-        keys
-    } else {
-        format!("  {}  ·{}", app.status, keys)
-    };
-    let para = Paragraph::new(status)
-        .style(Style::default().fg(MUTED))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(MUTED)),
-        );
+    }
+}
+
+fn pack_hints(hints: &[(&'static str, String)], max_width: u16) -> Vec<Line<'static>> {
+    let max_width = max_width.max(8) as usize;
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut current: Vec<Span<'static>> = Vec::new();
+    let mut used = 0usize;
+
+    for (key, action) in hints {
+        let width = key.chars().count() + action.chars().count() + 4;
+        if used > 0 && used + width > max_width {
+            lines.push(Line::from(std::mem::take(&mut current)));
+            used = 0;
+        }
+        current.push(Span::styled(
+            format!(" {key} "),
+            Style::default()
+                .fg(Color::Black)
+                .bg(ACCENT)
+                .add_modifier(Modifier::BOLD),
+        ));
+        current.push(Span::styled(
+            format!(" {action}  "),
+            Style::default().fg(Color::Gray),
+        ));
+        used += width;
+    }
+    if !current.is_empty() {
+        lines.push(Line::from(current));
+    }
+    if lines.is_empty() {
+        lines.push(Line::from(""));
+    }
+    lines
+}
+
+fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
+    let inner_w = area.width.saturating_sub(4);
+    let mut lines = pack_hints(&footer_hints(app), inner_w);
+    if !app.status.is_empty() && !matches!(app.screen, Screen::Scanning | Screen::Deleting) {
+        let max = inner_w.max(8) as usize;
+        lines.push(Line::from(Span::styled(
+            ellipsize(&app.status, max),
+            Style::default().fg(MUTED),
+        )));
+    }
+    let para = Paragraph::new(lines).block(
+        Block::default()
+            .title(" Keys ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(MUTED)),
+    );
     frame.render_widget(para, area);
+}
+
+fn ellipsize(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 fn draw_help(frame: &mut Frame, area: Rect) {
@@ -534,4 +620,39 @@ fn inset(area: Rect, margin_x: u16, margin_y: u16) -> Rect {
         Constraint::Length(margin_y),
     ])
     .split(h[1])[1]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pack_hints_wraps_instead_of_clipping() {
+        let hints = vec![
+            ("↑↓/jk", "move".into()),
+            ("⏎", "open".into()),
+            ("d", "delete".into()),
+            ("a", "delete all".into()),
+            ("esc", "back".into()),
+            ("?", "help".into()),
+            ("q", "quit".into()),
+        ];
+        let wide = pack_hints(&hints, 120);
+        assert_eq!(wide.len(), 1);
+
+        let narrow = pack_hints(&hints, 32);
+        assert!(
+            narrow.len() >= 2,
+            "expected wrapped key rows on a narrow terminal, got {}",
+            narrow.len()
+        );
+    }
+
+    #[test]
+    fn ellipsize_keeps_short_status() {
+        assert_eq!(ellipsize("Found 3 items", 40), "Found 3 items");
+        let long = ellipsize("Found 90 items in 84 groups plus a long warning", 20);
+        assert_eq!(long.chars().count(), 20);
+        assert!(long.ends_with('…'));
+    }
 }

@@ -14,6 +14,7 @@ pub enum Category {
     Xcode,
     Mail,
     OrphanedFiles,
+    LoginItems,
     LargeOld,
     Duplicates,
     Language,
@@ -23,7 +24,7 @@ pub enum Category {
 }
 
 impl Category {
-    pub const ALL: [Category; 16] = [
+    pub const ALL: [Category; 17] = [
         Category::SystemCache,
         Category::UserCache,
         Category::Logs,
@@ -34,6 +35,7 @@ impl Category {
         Category::Xcode,
         Category::Mail,
         Category::OrphanedFiles,
+        Category::LoginItems,
         Category::LargeOld,
         Category::Duplicates,
         Category::Language,
@@ -54,6 +56,7 @@ impl Category {
             Category::Xcode => "Xcode Junk",
             Category::Mail => "Mail Downloads",
             Category::OrphanedFiles => "Orphaned Files",
+            Category::LoginItems => "Login Items",
             Category::LargeOld => "Large & Old Files",
             Category::Duplicates => "Duplicate Files",
             Category::Language => "Unused Language Files",
@@ -85,7 +88,10 @@ impl Category {
             }
             Category::Mail => "Attachments Mail downloaded for preview.",
             Category::OrphanedFiles => {
-                "Prefs, launch agents, containers, caches, and other Library files for apps that no longer look installed. Verify first."
+                "Prefs, containers, caches, and other Library files for apps that no longer look installed. Verify first."
+            }
+            Category::LoginItems => {
+                "Background launch agents/daemons and Open at Login entries left by uninstalled apps. Apple items are never listed."
             }
             Category::LargeOld => {
                 "Files ≥50 MB that have not been touched in about 90 days."
@@ -116,6 +122,15 @@ pub enum ReclaimOp {
     /// `tmutil deletelocalsnapshots <date>` — date must be `YYYY-MM-DD-HHMMSS`.
     TmLocalSnapshot {
         date: String,
+    },
+    /// `launchctl bootout` then remove the plist at `path` (and its privileged helper).
+    LaunchJob {
+        label: String,
+        helper: Option<PathBuf>,
+    },
+    /// Remove an entry from the System Events "Open at Login" list.
+    OpenAtLogin {
+        name: String,
     },
 }
 
@@ -152,8 +167,9 @@ impl FileItem {
     pub fn exists(&self) -> bool {
         match &self.op {
             ReclaimOp::DeletePath => self.path.exists(),
-            // Snapshot presence is dropped from the scan result after a successful tmutil call.
-            ReclaimOp::TmLocalSnapshot { .. } => true,
+            ReclaimOp::LaunchJob { .. } => self.path.symlink_metadata().is_ok(),
+            // Dropped from the scan result after a successful removal call.
+            ReclaimOp::TmLocalSnapshot { .. } | ReclaimOp::OpenAtLogin { .. } => true,
         }
     }
 }

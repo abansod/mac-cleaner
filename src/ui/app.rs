@@ -538,7 +538,10 @@ impl App {
             .flat_map(|g| g.items.iter().cloned())
             .collect();
         let mut body = reclaim_warnings(&items);
-        if matches!(category, Category::LocalSnapshots | Category::IosBackups) {
+        if matches!(
+            category,
+            Category::LocalSnapshots | Category::IosBackups | Category::LoginItems
+        ) {
             body.insert(
                 0,
                 "Each item is re-checked against an allowlist before anything is removed.".into(),
@@ -796,6 +799,28 @@ fn reclaim_warnings(items: &[FileItem]) -> Vec<String> {
     {
         extra.push(
             "Removes old Messages attachment files. chat.db and other Messages databases are never touched.".into(),
+        );
+    }
+    if items
+        .iter()
+        .any(|item| matches!(item.op, ReclaimOp::LaunchJob { .. }))
+    {
+        extra.push(
+            "Stops each background job with launchctl, then deletes its launchd plist (and its privileged helper, if any).".into(),
+        );
+    }
+    if items.iter().any(crate::login_items::needs_admin) {
+        extra.push(
+            "System-wide items need admin rights: macOS will show its password dialog once.".into(),
+        );
+    }
+    if items
+        .iter()
+        .any(|item| matches!(item.op, ReclaimOp::OpenAtLogin { .. }))
+    {
+        extra.push(
+            "Removes the Open at Login entry via System Events; macOS may ask to allow Automation."
+                .into(),
         );
     }
     extra
