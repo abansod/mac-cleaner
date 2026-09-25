@@ -284,6 +284,12 @@ pub fn reclaim(item: &FileItem, on_progress: &mut dyn FnMut(&str, u64)) -> Resul
             reclaim_tm_snapshot(date)
         }
         ReclaimOp::DeletePath => reclaim_hidden_or_normal_path(item, on_progress),
+        ReclaimOp::LaunchJob { .. } | ReclaimOp::OpenAtLogin { .. } => {
+            on_progress("Removing login item…", 0);
+            crate::login_items::remove(std::slice::from_ref(item))
+                .pop()
+                .map_or(Ok(0), |(_, result)| result)
+        }
     }
 }
 

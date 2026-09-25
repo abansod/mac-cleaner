@@ -15,6 +15,7 @@ const SKIP_NAMES: &[&str] = &[
     "Apple",
     "Application Scripts",
     "Application Support",
+    "ByHost",
     "Caches",
     "CallHistoryDB",
     "CallHistoryTransactions",
@@ -24,6 +25,7 @@ const SKIP_NAMES: &[&str] = &[
     "Cookies",
     "CrashReporter",
     "DiagnosticReports",
+    "default.store",
     "DifferentialPrivacy",
     "DiskImages",
     "FaceTime",
@@ -50,6 +52,26 @@ const SKIP_NAMES: &[&str] = &[
 
 const SKIP_PREFIXES: &[&str] = &["com.apple.", "apple.", "group.com.apple.", "group.apple."];
 
+/// Unprefixed macOS items that no system launchd job or framework name reveals.
+const APPLE_IDENTS: &[&str] = &[
+    "animoji",
+    "jetpackcache",
+    "mobilemeaccounts",
+    "sharedimagecache",
+    "tokenbucketratelimiter",
+];
+
+/// Directories whose entries name macOS daemons and frameworks. Unprefixed
+/// ~/Library items (e.g. `familycircled.plist`) are matched against these.
+const APPLE_NAME_DIRS: &[&str] = &[
+    "/System/Library/LaunchAgents",
+    "/System/Library/LaunchDaemons",
+    "/System/Library/Frameworks",
+    "/System/Library/PrivateFrameworks",
+    "/System/Library/CoreServices",
+    "/usr/libexec",
+];
+
 const GENERIC_BUNDLE_TAILS: &[&str] = &[
     "agent", "app", "client", "daemon", "desktop", "electron", "helper", "launcher", "mac",
     "macos", "updater", "webapp",
@@ -64,8 +86,6 @@ fn orphan_roots(lib: &Path) -> Vec<(&'static str, PathBuf, u64)> {
             lib.join("Preferences").join("ByHost"),
             0,
         ),
-        ("LaunchAgents", lib.join("LaunchAgents"), 0),
-        ("LaunchDaemons", lib.join("LaunchDaemons"), 0),
         ("Application Scripts", lib.join("Application Scripts"), 0),
         (
             "Application Support",
@@ -138,11 +158,11 @@ fn consider_child(
     min_size: u64,
 ) {
     let raw = file_name(&child);
-    if raw.starts_with('.') || SKIP_NAMES.contains(&raw.as_str()) {
+    if raw.starts_with('.') || SKIP_NAMES.contains(&raw.as_str()) || is_uuid_name(&raw) {
         return;
     }
     let ident = normalize_ident(&raw);
-    if ident.is_empty() || should_skip_ident(&ident) {
+    if ident.is_empty() || should_skip_ident(&ident) || is_apple_ident(&ident, &installed.apple) {
         return;
     }
     if likely_installed(&ident, installed) {
@@ -174,11 +194,61 @@ fn consider_child(
 }
 
 #[derive(Default)]
-struct InstalledApps {
+pub(crate) struct InstalledApps {
     tokens: HashSet<String>,
+    /// Exact-match only: substring matching against thousands of system names
+    /// would hide genuine leftovers.
+    apple: HashSet<String>,
 }
 
-fn installed_apps() -> InstalledApps {
+impl InstalledApps {
+    pub(crate) fn has_bundle_id(&self, bundle_id: &str) -> bool {
+        self.tokens.contains(&bundle_id.trim().to_lowercase())
+    }
+}
+
+fn apple_system_names() -> HashSet<String> {
+    let mut names = HashSet::new();
+    for dir in APPLE_NAME_DIRS {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if let Some(name) = apple_name_token(&entry.file_name().to_string_lossy()) {
+                names.insert(name);
+            }
+        }
+    }
+    names
+}
+
+/// `com.apple.familycircled.plist` → `familycircled`, `GeoServices.framework` → `geoservices`.
+fn apple_name_token(file_name: &str) -> Option<String> {
+    let mut n = file_name.trim().to_lowercase();
+    for suffix in [".plist", ".framework", ".app", ".bundle"] {
+        if let Some(stripped) = n.strip_suffix(suffix) {
+            n = stripped.to_string();
+            break;
+        }
+    }
+    let last = n.rsplit('.').next().unwrap_or_default();
+    (last.len() >= 3).then(|| last.to_string())
+}
+
+fn is_apple_ident(ident: &str, apple: &HashSet<String>) -> bool {
+    APPLE_IDENTS.contains(&ident) || apple.contains(ident) || apple.contains(&family_key(ident))
+}
+
+fn is_uuid_name(name: &str) -> bool {
+    let b = name.as_bytes();
+    b.len() == 36
+        && b.iter().enumerate().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => *c == b'-',
+            _ => c.is_ascii_hexdigit(),
+        })
+}
+
+pub(crate) fn installed_apps() -> InstalledApps {
     let mut tokens = HashSet::new();
     let roots = [
         PathBuf::from("/Applications"),
@@ -190,7 +260,10 @@ fn installed_apps() -> InstalledApps {
     for apps_dir in roots {
         collect_apps(&apps_dir, &mut tokens, 0);
     }
-    InstalledApps { tokens }
+    InstalledApps {
+        tokens,
+        apple: apple_system_names(),
+    }
 }
 
 fn collect_apps(dir: &Path, tokens: &mut HashSet<String>, depth: u8) {
@@ -310,7 +383,7 @@ fn family_key(ident: &str) -> String {
     }
 }
 
-fn likely_installed(folder_name: &str, installed: &InstalledApps) -> bool {
+pub(crate) fn likely_installed(folder_name: &str, installed: &InstalledApps) -> bool {
     likely_installed_tokens(folder_name, &installed.tokens)
 }
 
@@ -392,7 +465,10 @@ mod tests {
         let mut tokens = HashSet::new();
         insert_token(&mut tokens, "spotify");
         insert_token(&mut tokens, "com.spotify.client");
-        let installed = InstalledApps { tokens };
+        let installed = InstalledApps {
+            tokens,
+            ..Default::default()
+        };
         assert!(likely_installed("com.spotify.client.plist", &installed));
         assert!(likely_installed("Spotify", &installed));
         assert!(!likely_installed("com.uninstalled.ghost.app", &installed));
@@ -404,5 +480,47 @@ mod tests {
         let installed = InstalledApps::default();
         assert!(likely_installed("com.apple.Safari", &installed));
         assert!(should_skip_ident("group.com.apple.notes"));
+    }
+
+    #[test]
+    fn apple_name_tokens_from_system_entries() {
+        assert_eq!(
+            apple_name_token("com.apple.familycircled.plist").as_deref(),
+            Some("familycircled")
+        );
+        assert_eq!(
+            apple_name_token("GeoServices.framework").as_deref(),
+            Some("geoservices")
+        );
+        assert_eq!(apple_name_token("Finder.app").as_deref(), Some("finder"));
+        assert_eq!(apple_name_token("com.apple.xy.plist"), None);
+    }
+
+    #[test]
+    fn unprefixed_system_items_are_apple() {
+        let apple: HashSet<String> = ["familycircled", "sharedfilelistd"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert!(is_apple_ident(
+            &normalize_ident("familycircled.plist"),
+            &apple
+        ));
+        assert!(is_apple_ident(
+            &normalize_ident("MobileMeAccounts.plist"),
+            &apple
+        ));
+        assert!(!is_apple_ident(
+            &normalize_ident("com.alienator88.Pearcleaner.plist"),
+            &apple
+        ));
+        assert!(!is_apple_ident("node-gyp", &apple));
+    }
+
+    #[test]
+    fn uuid_names_are_detected() {
+        assert!(is_uuid_name("0F031487-6FDD-4923-857E-E9333C8215D0"));
+        assert!(!is_uuid_name("com.foo.bar"));
+        assert!(!is_uuid_name("0F031487-6FDD-4923-857E-E9333C8215DZ"));
     }
 }

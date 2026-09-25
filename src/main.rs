@@ -1,5 +1,6 @@
 mod cli;
 mod engine;
+mod login_items;
 mod macos_space;
 mod models;
 mod safety;

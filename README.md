@@ -17,7 +17,8 @@ Interactive CLI for macOS that finds junk, clutter, and duplicate files so you c
 - **Time Machine local snapshots** (via `tmutil`; the sealed macOS boot snapshot is never listed)
 - **iOS/iPadOS Finder backups** (whole device backup folders only)
 - **Old Messages attachments** (never `chat.db` or other Messages databases)
-- **Orphaned files** (prefs, launch agents, containers, caches, Application Support, and other Library leftovers for apps that are no longer installed)
+- **Orphaned files** (prefs, containers, caches, Application Support, and other Library leftovers for apps that are no longer installed)
+- **Stale login items** — background launch agents/daemons (and their privileged helpers) and Open at Login entries left behind by uninstalled apps
 - **Large & old files**
 - **Duplicate files** (content-hashed)
 - **Unused language files** in `~/Applications`
@@ -137,6 +138,7 @@ Click a row to highlight it. A confirm dialog appears before every delete (`←`
 - Refuses macOS user-data stores that would break the OS or iCloud: Keychains, TCC, Mail store, Photos libraries, `chat.db`, Mobile Documents / CloudStorage.
 - Time Machine snapshots are removed only with `tmutil deletelocalsnapshots <YYYY-MM-DD-HHMMSS>` — never `diskutil apfs deleteSnapshot`, never a mount point such as `/`.
 - iOS backups are deleted only as a complete finished device folder, never as individual files inside `MobileSync`.
+- Login items: only `.plist` files directly inside `~/Library/LaunchAgents`, `/Library/LaunchAgents`, and `/Library/LaunchDaemons` (plus the job's own helper in `/Library/PrivilegedHelperTools`) are removed, after `launchctl bootout`. Apple jobs are never listed, and every item is re-checked right before removal. System-wide items use the standard macOS administrator password dialog, once per cleanup — mac-cleaner never sees the password. Reading Open at Login entries (full scan only) needs Automation permission for System Events.
 - Asks for confirmation before every delete (unless `--yes`).
 - Duplicate “delete group” removes **all** copies — prefer `K` to keep one.
 
