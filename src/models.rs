@@ -1,6 +1,11 @@
 use std::cmp::Reverse;
-use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
+
+use rayon::prelude::*;
+use rustix::fs::{self as rfs, Access, AtFlags, FileType, Mode, OFlags};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Category {
@@ -192,20 +197,131 @@ pub struct FileGroup {
 
 impl FileGroup {
     pub fn size(&self) -> u64 {
-        self.items
-            .iter()
-            .filter(|item| item.exists())
-            .map(|item| item.size)
-            .sum()
+        self.stats().1
     }
 
     pub fn count(&self) -> usize {
-        self.items.iter().filter(|item| item.exists()).count()
+        self.stats().0
+    }
+
+    /// Live `(count, size)` of items still on disk, checked in one pass.
+    pub fn stats(&self) -> (usize, u64) {
+        let mut runs = Vec::new();
+        let mut start = 0;
+        for i in 1..=self.items.len() {
+            if i == self.items.len()
+                || fast_parent(&self.items[i]) != fast_parent(&self.items[start])
+            {
+                runs.push(&self.items[start..i]);
+                start = i;
+            }
+        }
+        crate::fs_pool().install(|| {
+            runs.into_par_iter()
+                .map(|run| {
+                    if run.len() < MIN_SHARED_PARENT || fast_parent(&run[0]).is_none() {
+                        return live_stats(run.iter().filter(|item| item.exists()));
+                    }
+                    live_stats_in_shared_dir(run)
+                })
+                .reduce(|| (0, 0), add_stats)
+        })
     }
 
     pub fn prune(&mut self) {
         self.items.retain(FileItem::exists);
     }
+}
+
+/// Runs shorter than this stat full paths; opening the parent would cost more than it saves.
+const MIN_SHARED_PARENT: usize = 3;
+/// Directory entries read per wanted name before giving up on the listing and stat-ing instead.
+const LISTING_ENTRIES_PER_ITEM: usize = 16;
+
+fn add_stats(a: (usize, u64), b: (usize, u64)) -> (usize, u64) {
+    (a.0 + b.0, a.1 + b.1)
+}
+
+fn live_stats<'a>(items: impl Iterator<Item = &'a FileItem>) -> (usize, u64) {
+    items.fold((0, 0), |acc, item| add_stats(acc, (1, item.size)))
+}
+
+/// Parent directory bytes of the item's path, when its name can be checked relative to it.
+fn fast_parent(item: &FileItem) -> Option<&[u8]> {
+    split_parent(&item.path).map(|(parent, _)| parent)
+}
+
+fn split_parent(path: &Path) -> Option<(&[u8], &[u8])> {
+    let bytes = path.as_os_str().as_bytes();
+    let slash = bytes.iter().rposition(|&b| b == b'/')?;
+    let (parent, name) = (&bytes[..slash], &bytes[slash + 1..]);
+    if name.is_empty() || name == b"." || name == b".." {
+        return None;
+    }
+    Some((if parent.is_empty() { b"/" } else { parent }, name))
+}
+
+/// Existence check for items that all share one parent directory, opened once.
+///
+/// Names seen in the directory listing as non-symlinks exist. Anything else (not listed, a
+/// symlink, or a name that differs only by case or Unicode normalization) is checked with
+/// `accessat`, so the result matches `Path::exists`.
+fn live_stats_in_shared_dir(items: &[FileItem]) -> (usize, u64) {
+    let opened = items.first().and_then(fast_parent).and_then(|parent| {
+        let fd = rfs::open(
+            OsStr::from_bytes(parent),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .ok()?;
+        let dir = rfs::Dir::read_from(&fd).ok()?;
+        Some((fd, dir))
+    });
+    let Some((fd, mut dir)) = opened else {
+        return live_stats(items.iter().filter(|item| item.exists()));
+    };
+
+    let mut listed: HashMap<&[u8], bool> = items
+        .iter()
+        .filter(|item| item.op == ReclaimOp::DeletePath)
+        .filter_map(|item| split_parent(&item.path).map(|(_, name)| (name, false)))
+        .collect();
+    let mut remaining = listed.len();
+    let mut budget = 64 + LISTING_ENTRIES_PER_ITEM * listed.len();
+    while remaining > 0 && budget > 0 {
+        let Some(Ok(entry)) = dir.read() else { break };
+        budget -= 1;
+        let file_type = entry.file_type();
+        if file_type == FileType::Symlink || file_type == FileType::Unknown {
+            continue;
+        }
+        if let Some(seen) = listed.get_mut(entry.file_name().to_bytes()) {
+            if !*seen {
+                *seen = true;
+                remaining -= 1;
+            }
+        }
+    }
+
+    drop(dir);
+    live_stats(items.iter().filter(|item| {
+        match item.op {
+            ReclaimOp::DeletePath => match split_parent(&item.path) {
+                Some((_, name)) => {
+                    listed.get(name).copied().unwrap_or(false)
+                        || rfs::accessat(
+                            &fd,
+                            OsStr::from_bytes(name),
+                            Access::EXISTS,
+                            AtFlags::empty(),
+                        )
+                        .is_ok()
+                }
+                None => item.exists(),
+            },
+            _ => item.exists(),
+        }
+    }))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -217,19 +333,19 @@ pub struct ScanResult {
 
 impl ScanResult {
     pub fn total_size(&self) -> u64 {
-        self.groups.iter().map(FileGroup::size).sum()
+        crate::fs_pool().install(|| self.groups.par_iter().map(FileGroup::size).sum())
     }
 
     pub fn total_files(&self) -> usize {
-        self.groups.iter().map(FileGroup::count).sum()
+        crate::fs_pool().install(|| self.groups.par_iter().map(FileGroup::count).sum())
     }
 
     pub fn prune_empty(&mut self) {
-        for group in &mut self.groups {
-            group.prune();
-        }
-        self.groups.retain(|group| group.count() > 0);
-        self.groups.sort_by_key(|b| Reverse(b.size()));
+        let groups = &mut self.groups;
+        crate::fs_pool().install(|| groups.par_iter_mut().for_each(FileGroup::prune));
+        self.groups.retain(|group| !group.items.is_empty());
+        self.groups
+            .sort_by_key(|b| Reverse(b.items.iter().map(|i| i.size).sum::<u64>()));
     }
 
     pub fn forget_paths(&mut self, paths: &[PathBuf]) {
@@ -246,36 +362,43 @@ impl ScanResult {
         self.groups.iter().find(|group| group.key == key)
     }
 
-    pub fn groups_in(&self, category: Category) -> Vec<&FileGroup> {
-        let mut groups: Vec<&FileGroup> = self
-            .groups
-            .iter()
-            .filter(|group| group.category == category && group.count() > 0)
-            .collect();
-        groups.sort_by_key(|b| Reverse(b.size()));
+    /// Non-empty groups matching `keep`, with their live size, largest first.
+    fn live_groups(&self, keep: impl Fn(&FileGroup) -> bool + Sync) -> Vec<(&FileGroup, u64)> {
+        let mut groups: Vec<(&FileGroup, u64)> = crate::fs_pool().install(|| {
+            self.groups
+                .par_iter()
+                .filter(|group| keep(group))
+                .filter_map(|group| match group.stats() {
+                    (0, _) => None,
+                    (_, size) => Some((group, size)),
+                })
+                .collect()
+        });
+        groups.sort_by_key(|&(_, size)| Reverse(size));
         groups
+    }
+
+    pub fn groups_in(&self, category: Category) -> Vec<&FileGroup> {
+        self.live_groups(|group| group.category == category)
+            .into_iter()
+            .map(|(group, _)| group)
+            .collect()
     }
 
     pub fn by_category(&self) -> BTreeMap<Category, Vec<&FileGroup>> {
         let mut map: BTreeMap<Category, Vec<&FileGroup>> = BTreeMap::new();
-        for group in &self.groups {
-            if group.count() == 0 {
-                continue;
-            }
+        for (group, _) in self.live_groups(|_| true) {
             map.entry(group.category).or_default().push(group);
-        }
-        for groups in map.values_mut() {
-            groups.sort_by_key(|b| Reverse(b.size()));
         }
         map
     }
 
     pub fn categories_sorted(&self) -> Vec<Category> {
-        let mut cats: Vec<(Category, u64)> = self
-            .by_category()
-            .into_iter()
-            .map(|(cat, groups)| (cat, groups.iter().map(|g| g.size()).sum()))
-            .collect();
+        let mut totals: BTreeMap<Category, u64> = BTreeMap::new();
+        for (group, size) in self.live_groups(|_| true) {
+            *totals.entry(group.category).or_default() += size;
+        }
+        let mut cats: Vec<(Category, u64)> = totals.into_iter().collect();
         cats.sort_by_key(|b| Reverse(b.1));
         cats.into_iter().map(|(cat, _)| cat).collect()
     }

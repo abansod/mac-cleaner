@@ -160,8 +160,8 @@ Criterion benchmarks run on folders they generate under the system temp director
 
 ```bash
 cargo bench                                  # directory sizing, duplicate hashing, scan-result queries
-cargo bench -- --save-baseline main          # record a baseline
-cargo bench -- --baseline main               # compare against it
+cargo bench --bench scan -- --save-baseline main   # record a baseline
+cargo bench --bench scan -- --baseline main        # compare against it
 ```
 
 Reports are written to `target/criterion/`.

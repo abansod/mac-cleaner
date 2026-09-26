@@ -18,6 +18,10 @@ clap = { version = "4", features = ["derive"] }
 crossterm = "0.28"
 libc = "0.2"
 ratatui = "0.29"
+# rayon 1.11+ needs Rust 1.80; keep within rust-version above.
+rayon = "~1.10"
+# Same major version crossterm already pulls in.
+rustix = { version = "0.38", features = ["fs"] }
 sha2 = "0.10"
 walkdir = "2"
 
