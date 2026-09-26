@@ -21,7 +21,20 @@ ratatui = "0.29"
 sha2 = "0.10"
 walkdir = "2"
 
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "scan"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
+
+# Release build with symbols, for profilers such as samply.
+[profile.profiling]
+inherits = "release"
+strip = false
+debug = true

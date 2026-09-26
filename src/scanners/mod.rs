@@ -61,3 +61,8 @@ pub fn smart_scanners() -> Vec<Box<dyn Scanner>> {
 pub fn duplicate_scanner(extra_root: Option<PathBuf>) -> duplicates::DuplicateScanner {
     duplicates::DuplicateScanner::with_extra_root(extra_root)
 }
+
+/// A duplicate scanner that walks only `roots`, skipping the default home folders.
+pub fn duplicate_scanner_in(roots: Vec<PathBuf>) -> duplicates::DuplicateScanner {
+    duplicates::DuplicateScanner::with_roots(roots)
+}

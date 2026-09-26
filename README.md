@@ -154,6 +154,34 @@ cargo clippy --all-targets -- -D warnings
 
 `Cargo.lock` is the source of truth for reproducible builds.
 
+### Benchmarks
+
+Criterion benchmarks run on folders they generate under the system temp directory, so results do not depend on what is in your home folder:
+
+```bash
+cargo bench                                  # directory sizing, duplicate hashing, scan-result queries
+cargo bench -- --save-baseline main          # record a baseline
+cargo bench -- --baseline main               # compare against it
+```
+
+Reports are written to `target/criterion/`.
+
+To time whole read-only scans of this Mac, install [hyperfine](https://github.com/sharkdp/hyperfine) (`brew install hyperfine`) and run:
+
+```bash
+./scripts/bench.sh                           # smart and full `list` scans, results in target/bench-scan.md
+./scripts/bench.sh --prepare 'sudo purge'    # cold filesystem cache
+```
+
+These numbers depend on disk contents and caching, so only compare runs made on the same machine.
+
+To see where time goes, profile a build that keeps symbols with [samply](https://github.com/mstange/samply):
+
+```bash
+cargo build --profile profiling
+samply record target/profiling/mac-cleaner list --mode smart
+```
+
 ## Contributing
 
 Bug reports and pull requests are welcome on [GitHub](https://github.com/abansod/mac-cleaner). Please run the development commands above before opening a PR.

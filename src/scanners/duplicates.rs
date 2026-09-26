@@ -54,6 +54,13 @@ impl DuplicateScanner {
         }
         scanner
     }
+
+    pub fn with_roots(roots: Vec<PathBuf>) -> Self {
+        Self {
+            roots,
+            ..Self::default()
+        }
+    }
 }
 
 impl Scanner for DuplicateScanner {
