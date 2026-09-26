@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
@@ -5,6 +6,8 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
+use rayon::prelude::*;
+use rustix::fs::{self as rfs, AtFlags, FileType, Mode, OFlags};
 use walkdir::WalkDir;
 
 /// Truncate in this many bytes so a multi-GB unlink can report progress.
@@ -80,23 +83,56 @@ pub fn safe_size(path: &Path) -> u64 {
         return 0;
     }
 
-    let mut total = 0u64;
-    for entry in WalkDir::new(path)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(Result::ok)
-    {
-        let Ok(entry_meta) = entry.path().symlink_metadata() else {
-            continue;
-        };
-        if entry_meta.file_type().is_symlink() {
+    crate::fs_pool().install(|| dir_size(path))
+}
+
+/// Bytes of regular files under `dir`, without following symlinks. Subdirectories are walked in parallel.
+fn dir_size(dir: &Path) -> u64 {
+    let Ok(fd) = rfs::open(
+        dir,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) else {
+        return 0;
+    };
+    let Ok(mut entries) = rfs::Dir::read_from(&fd) else {
+        return 0;
+    };
+    let mut file_bytes = 0u64;
+    let mut subdirs = Vec::new();
+    // Stats are relative to the open directory, so each is a one-component lookup.
+    while let Some(Ok(entry)) = entries.read() {
+        let name = entry.file_name();
+        let bytes = name.to_bytes();
+        if bytes == b"." || bytes == b".." {
             continue;
         }
-        if entry_meta.is_file() {
-            total = total.saturating_add(entry_meta.len());
+        let file_type = match entry.file_type() {
+            FileType::Unknown => match rfs::statat(&fd, name, AtFlags::SYMLINK_NOFOLLOW) {
+                Ok(st) => FileType::from_raw_mode(st.st_mode as _),
+                Err(_) => continue,
+            },
+            file_type => file_type,
+        };
+        match file_type {
+            FileType::Directory => subdirs.push(dir.join(OsStr::from_bytes(bytes))),
+            FileType::RegularFile => {
+                if let Ok(st) = rfs::statat(&fd, name, AtFlags::SYMLINK_NOFOLLOW) {
+                    if FileType::from_raw_mode(st.st_mode as _) == FileType::RegularFile {
+                        file_bytes = file_bytes.saturating_add(st.st_size as u64);
+                    }
+                }
+            }
+            _ => {}
         }
     }
-    total
+    drop(entries);
+    drop(fd);
+    let dir_bytes = subdirs
+        .par_iter()
+        .map(|sub| dir_size(sub))
+        .reduce(|| 0, u64::saturating_add);
+    file_bytes.saturating_add(dir_bytes)
 }
 
 pub fn is_writable(path: &Path) -> bool {

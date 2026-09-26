@@ -1,17 +1,8 @@
-mod cli;
-mod engine;
-mod login_items;
-mod macos_space;
-mod models;
-mod safety;
-mod scanners;
-mod ui;
-
 fn main() {
     if !cfg!(target_os = "macos") {
         eprintln!("Warning: designed for macOS; some paths may be empty.");
     }
-    if let Err(err) = cli::run() {
+    if let Err(err) = mac_cleaner::run() {
         eprintln!("{err:#}");
         std::process::exit(1);
     }

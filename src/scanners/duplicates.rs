@@ -1,10 +1,12 @@
 use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
@@ -54,6 +56,13 @@ impl DuplicateScanner {
         }
         scanner
     }
+
+    pub fn with_roots(roots: Vec<PathBuf>) -> Self {
+        Self {
+            roots,
+            ..Self::default()
+        }
+    }
 }
 
 impl Scanner for DuplicateScanner {
@@ -93,68 +102,98 @@ impl Scanner for DuplicateScanner {
             .collect();
         progress(&format!("Hashing {} candidates…", candidates.len()));
 
+        let digests = hash_all(&candidates, progress);
         let mut by_hash: HashMap<String, Vec<PathBuf>> = HashMap::new();
-        for (i, path) in candidates.iter().enumerate() {
-            if let Some(digest) = quick_hash(path) {
-                by_hash.entry(digest).or_default().push(path.clone());
-            }
-            if i > 0 && i % 50 == 0 {
-                progress(&format!("Hashed {i} files…"));
+        for (path, digest) in candidates.into_iter().zip(digests) {
+            if let Some(digest) = digest {
+                by_hash.entry(digest).or_default().push(path);
             }
         }
 
-        let mut groups = Vec::new();
-        let mut dup_idx = 0usize;
-        for (digest, paths) in by_hash {
-            let mut unique = Vec::new();
-            let mut seen = std::collections::HashSet::new();
-            for path in paths {
-                let key = path.canonicalize().unwrap_or_else(|_| path.clone());
-                if seen.insert(key) {
-                    unique.push(path);
+        let mut sets: Vec<(String, Vec<FileItem>)> = by_hash
+            .into_par_iter()
+            .filter_map(|(digest, paths)| {
+                let items = duplicate_items(paths, &digest);
+                (items.len() >= 2).then_some((digest, items))
+            })
+            .collect();
+        sets.sort_by_cached_key(|(_, items)| Reverse(items.iter().map(|i| i.size).sum::<u64>()));
+
+        sets.into_iter()
+            .enumerate()
+            .map(|(i, (digest, mut items))| {
+                let reason = format!("Duplicate set #{}", i + 1);
+                for item in &mut items {
+                    item.reason.clone_from(&reason);
                 }
-            }
-            if unique.len() < 2 {
-                continue;
-            }
-            dup_idx += 1;
-            let mut items = Vec::new();
-            for path in unique {
-                let Ok(meta) = path.metadata() else {
-                    continue;
-                };
-                items.push(FileItem::file(
-                    path,
-                    meta.len(),
-                    Category::Duplicates,
-                    format!("Duplicate set #{dup_idx}"),
-                    digest.chars().take(12).collect::<String>(),
-                ));
-            }
-            if items.len() < 2 {
-                continue;
-            }
-            let reclaimable = items.iter().skip(1).map(|i| i.size).sum::<u64>();
-            let name = items[0]
-                .path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| items[0].path.display().to_string());
-            let short: String = digest.chars().take(12).collect();
-            groups.push(FileGroup {
-                key: format!("dup:{}", digest.chars().take(16).collect::<String>()),
-                category: Category::Duplicates,
-                title: format!("{name} ×{}", items.len()),
-                description: format!(
-                    "Identical files — reclaim ~{} by keeping one. Hash {short}…",
-                    crate::safety::format_bytes(reclaimable)
-                ),
-                items,
-            });
-        }
-        groups.sort_by_key(|b| Reverse(b.size()));
-        groups
+                let reclaimable = items.iter().skip(1).map(|i| i.size).sum::<u64>();
+                let name = items[0]
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| items[0].path.display().to_string());
+                FileGroup {
+                    key: format!("dup:{}", &digest[..16]),
+                    category: Category::Duplicates,
+                    title: format!("{name} ×{}", items.len()),
+                    description: format!(
+                        "Identical files — reclaim ~{} by keeping one. Hash {}…",
+                        crate::safety::format_bytes(reclaimable),
+                        &digest[..12]
+                    ),
+                    items,
+                }
+            })
+            .collect()
     }
+}
+
+/// Hash `paths` in parallel, reporting progress on the calling thread.
+fn hash_all(paths: &[PathBuf], progress: &mut dyn FnMut(&str)) -> Vec<Option<String>> {
+    let (tx, rx) = mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        let worker = scope.spawn(move || {
+            paths
+                .par_iter()
+                .map_with(tx, |tx, path| {
+                    let digest = quick_hash(path);
+                    let _ = tx.send(());
+                    digest
+                })
+                .collect::<Vec<_>>()
+        });
+        let mut done = 0usize;
+        for () in rx {
+            done += 1;
+            if done % 50 == 0 {
+                progress(&format!("Hashed {done} files…"));
+            }
+        }
+        worker.join().expect("hash worker panicked")
+    })
+}
+
+/// One item per distinct file (hard links and symlinked paths collapse), skipping files that vanished.
+fn duplicate_items(paths: Vec<PathBuf>, digest: &str) -> Vec<FileItem> {
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+    for path in paths {
+        let key = path.canonicalize().unwrap_or_else(|_| path.clone());
+        if !seen.insert(key) {
+            continue;
+        }
+        let Ok(meta) = path.metadata() else {
+            continue;
+        };
+        items.push(FileItem::file(
+            path,
+            meta.len(),
+            Category::Duplicates,
+            String::new(),
+            &digest[..12],
+        ));
+    }
+    items
 }
 
 pub struct LargeOldScanner {
@@ -363,7 +402,7 @@ fn quick_hash(path: &Path) -> Option<String> {
     let mut hasher = Sha256::new();
     hasher.update(size.to_string().as_bytes());
     if size <= (HASH_CHUNK as u64) * 2 {
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(size as usize + 1);
         file.read_to_end(&mut buf).ok()?;
         hasher.update(&buf);
     } else {
