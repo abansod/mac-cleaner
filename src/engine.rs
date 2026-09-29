@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use crate::login_items;
 use crate::macos_space;
 use crate::models::{FileItem, ScanResult};
 use crate::safety::safe_size;
@@ -40,6 +41,7 @@ pub fn scan(kind: ScanKind, progress: &mut dyn FnMut(&str, usize, usize)) -> Sca
     result.prune_empty();
     result.disk = macos_space::disk_pressure();
     result.warnings = macos_space::scan_warnings(matches!(kind, ScanKind::Full));
+    result.warnings.extend(login_items::take_warnings());
     result
 }
 
@@ -64,6 +66,25 @@ pub fn delete_items_with_progress(
     let mut done = 0u64;
     let mut last_send = Instant::now() - Duration::from_secs(1);
     let mut last_message = String::new();
+
+    let (login, items): (Vec<&FileItem>, Vec<&FileItem>) = items
+        .iter()
+        .partition(|item| login_items::is_login_item_op(&item.op));
+    if !login.is_empty() {
+        progress("Removing login items…", done, total);
+        let login: Vec<FileItem> = login.into_iter().cloned().collect();
+        for (path, result) in login_items::remove(&login) {
+            match result {
+                Ok(freed) => {
+                    outcome.freed = outcome.freed.saturating_add(freed);
+                    done = done.saturating_add(freed);
+                    outcome.removed += 1;
+                    outcome.removed_paths.push(path);
+                }
+                Err(err) => outcome.errors.push(format!("{}: {err}", path.display())),
+            }
+        }
+    }
 
     for item in items {
         if matches!(item.op, crate::models::ReclaimOp::DeletePath)

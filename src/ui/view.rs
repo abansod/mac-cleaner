@@ -2,49 +2,70 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, BorderType, Borders, Clear, Gauge, List, ListItem, Padding, Paragraph, Wrap,
+    Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Padding, Paragraph, Wrap,
 };
 use ratatui::Frame;
 
 use crate::safety::format_bytes;
 
-use super::app::{App, Screen};
+use super::model::{Confirm, Modal, Model, Screen};
 
 const ACCENT: Color = Color::Cyan;
 const SIZE: Color = Color::LightGreen;
 const DANGER: Color = Color::Red;
 const MUTED: Color = Color::DarkGray;
 
-pub fn draw(frame: &mut Frame, app: &mut App) {
-    let area = frame.area();
-    let chunks = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Fill(1),
-        Constraint::Length(3),
-    ])
-    .split(area);
+/// Ratatui state for the main list: scroll offset and where it was last drawn.
+#[derive(Default)]
+pub struct ListView {
+    state: ListState,
+    area: Rect,
+}
 
-    draw_header(frame, chunks[0], app);
-
-    match app.screen {
-        Screen::Scanning => draw_scanning(frame, chunks[1], app),
-        Screen::Deleting => draw_deleting(frame, chunks[1], app),
-        Screen::Empty => draw_empty(frame, chunks[1]),
-        _ => draw_main(frame, chunks[1], app),
-    }
-
-    draw_footer(frame, chunks[2], app);
-
-    if app.help {
-        draw_help(frame, area);
-    }
-    if app.confirm.is_some() {
-        draw_confirm(frame, area, app);
+impl ListView {
+    /// The list index under a terminal row, if the row is inside the list border.
+    pub fn row_at(&self, row: u16) -> Option<usize> {
+        let area = self.area;
+        if row <= area.y || row + 1 >= area.y + area.height {
+            return None;
+        }
+        let inner = row.saturating_sub(area.y + 1);
+        Some(self.state.offset().saturating_add(inner as usize))
     }
 }
 
-fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
-    let reclaim = format_bytes(app.result.total_size());
+pub fn draw(frame: &mut Frame, model: &Model, list: &mut ListView) {
+    let area = frame.area();
+    // Keep enough footer rows that key hints can wrap on a narrow terminal
+    // instead of being clipped by a long status line.
+    let footer_h = footer_height(area, model);
+    let chunks = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Fill(1),
+        Constraint::Length(footer_h),
+    ])
+    .split(area);
+
+    draw_header(frame, chunks[0], model);
+
+    match model.screen {
+        Screen::Scanning => draw_scanning(frame, chunks[1], model),
+        Screen::Deleting => draw_deleting(frame, chunks[1], model),
+        Screen::Empty => draw_empty(frame, chunks[1]),
+        _ => draw_main(frame, chunks[1], model, list),
+    }
+
+    draw_footer(frame, chunks[2], model);
+
+    match &model.modal {
+        Some(Modal::Help) => draw_help(frame, area),
+        Some(Modal::Confirm(confirm)) => draw_confirm(frame, area, confirm),
+        None => {}
+    }
+}
+
+fn draw_header(frame: &mut Frame, area: Rect, model: &Model) {
+    let reclaim = format_bytes(model.result.total_size());
     let mut spans = vec![
         Span::styled(
             " Mac Cleaner ",
@@ -54,18 +75,18 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
-        Span::styled(app.mode_label(), Style::default().fg(ACCENT)),
+        Span::styled(model.mode_label(), Style::default().fg(ACCENT)),
         Span::raw("   "),
         Span::styled(
             format!(
                 "{} reclaimable · {} groups",
                 reclaim,
-                app.result.groups.len()
+                model.result.groups.len()
             ),
             Style::default().fg(SIZE).add_modifier(Modifier::BOLD),
         ),
     ];
-    if let Some(disk) = &app.result.disk {
+    if let Some(disk) = &model.result.disk {
         spans.push(Span::raw("   "));
         spans.push(Span::styled(
             format!(
@@ -85,31 +106,31 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(title).block(block), area);
 }
 
-fn draw_scanning(frame: &mut Frame, area: Rect, app: &App) {
-    let ratio = if app.scan_total == 0 {
+fn draw_scanning(frame: &mut Frame, area: Rect, model: &Model) {
+    let ratio = if model.scan_total == 0 {
         0.0
     } else {
-        ((app.scan_index + 1) as f64 / app.scan_total as f64).clamp(0.0, 1.0)
+        ((model.scan_index + 1) as f64 / model.scan_total as f64).clamp(0.0, 1.0)
     };
     draw_progress_screen(
         frame,
         area,
         " Scanning ",
         ratio,
-        format!("{} / {}", app.scan_index + 1, app.scan_total),
-        &app.scan_message,
+        format!("{} / {}", model.scan_index + 1, model.scan_total),
+        &model.scan_message,
         ACCENT,
     );
 }
 
-fn draw_deleting(frame: &mut Frame, area: Rect, app: &App) {
-    let ratio = if app.delete_total == 0 {
+fn draw_deleting(frame: &mut Frame, area: Rect, model: &Model) {
+    let ratio = if model.delete_total == 0 {
         0.0
     } else {
-        (app.delete_done as f64 / app.delete_total as f64).clamp(0.0, 1.0)
+        (model.delete_done as f64 / model.delete_total as f64).clamp(0.0, 1.0)
     };
     let pct = (ratio * 100.0).round() as u16;
-    let spinner = spinner_frame(app.delete_started.elapsed().as_millis());
+    let spinner = spinner_frame(model.delete_started.elapsed().as_millis());
     draw_progress_screen(
         frame,
         area,
@@ -117,10 +138,10 @@ fn draw_deleting(frame: &mut Frame, area: Rect, app: &App) {
         ratio,
         format!(
             "{pct}%  ·  {} / {}",
-            format_bytes(app.delete_done),
-            format_bytes(app.delete_total)
+            format_bytes(model.delete_done),
+            format_bytes(model.delete_total)
         ),
-        &app.delete_message,
+        &model.delete_message,
         DANGER,
     );
 }
@@ -190,7 +211,7 @@ fn draw_empty(frame: &mut Frame, area: Rect) {
     frame.render_widget(msg, area);
 }
 
-fn draw_main(frame: &mut Frame, area: Rect, app: &mut App) {
+fn draw_main(frame: &mut Frame, area: Rect, model: &Model, list: &mut ListView) {
     let show_detail = area.width >= 88;
     let body = if show_detail {
         Layout::horizontal([Constraint::Fill(3), Constraint::Fill(2)]).split(area)
@@ -198,10 +219,11 @@ fn draw_main(frame: &mut Frame, area: Rect, app: &mut App) {
         Layout::horizontal([Constraint::Fill(1)]).split(area)
     };
 
-    app.list_area = body[0];
-    let items = list_items(app);
-    let title = list_title(app);
-    let list = List::new(items)
+    list.area = body[0];
+    list.state.select(model.selection);
+    let items = list_items(model);
+    let title = list_title(model);
+    let widget = List::new(items)
         .block(
             Block::default()
                 .title(title)
@@ -217,10 +239,10 @@ fn draw_main(frame: &mut Frame, area: Rect, app: &mut App) {
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▶ ");
-    frame.render_stateful_widget(list, body[0], &mut app.list_state);
+    frame.render_stateful_widget(widget, body[0], &mut list.state);
 
     if show_detail {
-        let (heading, body_text) = app.selected_detail();
+        let (heading, body_text) = selected_detail(model);
         let detail = Paragraph::new(vec![
             Line::from(Span::styled(
                 heading,
@@ -230,10 +252,10 @@ fn draw_main(frame: &mut Frame, area: Rect, app: &mut App) {
             Line::from(body_text),
             Line::from(""),
             Line::from(Span::styled(
-                if app.status.is_empty() {
+                if model.status.is_empty() {
                     String::new()
                 } else {
-                    app.status.clone()
+                    model.status.clone()
                 },
                 Style::default().fg(SIZE),
             )),
@@ -251,11 +273,68 @@ fn draw_main(frame: &mut Frame, area: Rect, app: &mut App) {
     }
 }
 
-fn list_title(app: &App) -> String {
-    match app.screen {
+fn selected_detail(model: &Model) -> (String, String) {
+    let selected = model.selected();
+    match &model.screen {
+        Screen::Categories => {
+            if let Some(cat) = model.result.categories_sorted().get(selected) {
+                return (cat.label().to_string(), cat.hint().to_string());
+            }
+        }
+        Screen::Groups { category } => {
+            if let Some(group) = model.result.groups_in(*category).get(selected) {
+                let path = group
+                    .items
+                    .first()
+                    .map(|i| i.path.display().to_string())
+                    .unwrap_or_default();
+                return (
+                    group.title.clone(),
+                    format!("{}\n{}", group.description, path),
+                );
+            }
+        }
+        Screen::Files { group_key, .. } => {
+            if let Some(group) = model.result.group(group_key) {
+                if let Some(item) = group.items.get(selected) {
+                    return (
+                        item.path.display().to_string(),
+                        format!("{}\n{}", group.description, item.reason),
+                    );
+                }
+            }
+        }
+        Screen::Empty => {
+            return (
+                "All clean".into(),
+                "Press r to scan again, or q to quit.".into(),
+            )
+        }
+        Screen::Scanning => {
+            return (
+                model.scan_message.clone(),
+                "Scanning your home folder…".into(),
+            )
+        }
+        Screen::Deleting => {
+            return (
+                model.delete_message.clone(),
+                format!(
+                    "Freed {} of {}",
+                    format_bytes(model.delete_done),
+                    format_bytes(model.delete_total)
+                ),
+            )
+        }
+    }
+    (String::new(), String::new())
+}
+
+fn list_title(model: &Model) -> String {
+    match model.screen {
         Screen::Categories => " Categories ".into(),
         Screen::Groups { category } => format!(" {} ", category.label()),
-        Screen::Files { ref group_key, .. } => app
+        Screen::Files { ref group_key, .. } => model
             .result
             .group(group_key)
             .map(|g| format!(" {} ", g.title))
@@ -264,14 +343,15 @@ fn list_title(app: &App) -> String {
     }
 }
 
-fn list_items(app: &App) -> Vec<ListItem<'static>> {
-    match app.screen {
+fn list_items(model: &Model) -> Vec<ListItem<'static>> {
+    match model.screen {
         Screen::Categories => {
-            let cats = app.result.categories_sorted();
+            let cats = model.result.categories_sorted();
             let max = cats
                 .iter()
                 .map(|c| {
-                    app.result
+                    model
+                        .result
                         .groups_in(*c)
                         .iter()
                         .map(|g| g.size())
@@ -282,7 +362,7 @@ fn list_items(app: &App) -> Vec<ListItem<'static>> {
                 .max(1);
             cats.into_iter()
                 .map(|cat| {
-                    let groups = app.result.groups_in(cat);
+                    let groups = model.result.groups_in(cat);
                     let size: u64 = groups.iter().map(|g| g.size()).sum();
                     let files: usize = groups.iter().map(|g| g.count()).sum();
                     let bar = spark(size, max, 10);
@@ -298,7 +378,7 @@ fn list_items(app: &App) -> Vec<ListItem<'static>> {
                 })
                 .collect()
         }
-        Screen::Groups { category } => app
+        Screen::Groups { category } => model
             .result
             .groups_in(category)
             .into_iter()
@@ -314,7 +394,7 @@ fn list_items(app: &App) -> Vec<ListItem<'static>> {
             })
             .collect(),
         Screen::Files { ref group_key, .. } => {
-            let Some(group) = app.result.group(group_key) else {
+            let Some(group) = model.result.group(group_key) else {
                 return Vec::new();
             };
             group
@@ -322,7 +402,7 @@ fn list_items(app: &App) -> Vec<ListItem<'static>> {
                 .iter()
                 .enumerate()
                 .map(|(idx, item)| {
-                    let mark = if app.marked.contains(&idx) {
+                    let mark = if model.marked.contains(&idx) {
                         Span::styled(
                             " × ",
                             Style::default().fg(DANGER).add_modifier(Modifier::BOLD),
@@ -343,41 +423,123 @@ fn list_items(app: &App) -> Vec<ListItem<'static>> {
     }
 }
 
-fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
-    let keys = match app.screen {
-        Screen::Scanning => "  scanning…   ctrl+q abort".to_string(),
-        Screen::Deleting => "  deleting… please wait".to_string(),
-        Screen::Empty => "  r rescan   q quit   ? help".to_string(),
-        Screen::Categories => "  ↑↓/jk move   ⏎ open   r rescan   ? help   q quit".to_string(),
-        Screen::Groups { .. } => {
-            "  ↑↓/jk move   ⏎ files   d delete group   a delete all   esc back   q quit".to_string()
-        }
-        Screen::Files { .. } => {
-            let marked = if app.marked.is_empty() {
-                String::new()
-            } else {
-                format!("   {} marked", app.marked.len())
-            };
-            format!(
-                "  ↑↓/jk move   space mark   ⏎ delete{}   K keep this   d delete group   esc back",
-                marked
-            )
-        }
-    };
-    let status = if app.status.is_empty() {
-        keys
+fn footer_height(area: Rect, model: &Model) -> u16 {
+    let inner = area.width.saturating_sub(4);
+    let key_rows = pack_hints(&footer_hints(model), inner).len() as u16;
+    let status_rows = if model.status.is_empty() || model.is_busy() {
+        0
     } else {
-        format!("  {}  ·{}", app.status, keys)
+        1
     };
-    let para = Paragraph::new(status)
-        .style(Style::default().fg(MUTED))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(MUTED)),
-        );
+    // borders (2) + key rows + optional truncated status
+    (2 + key_rows.max(1) + status_rows).clamp(3, 6)
+}
+
+fn footer_hints(model: &Model) -> Vec<(&'static str, String)> {
+    match model.screen {
+        Screen::Scanning => vec![("ctrl+q", "abort".into())],
+        Screen::Deleting => vec![("…", "please wait".into())],
+        Screen::Empty => vec![
+            ("r", "rescan".into()),
+            ("q", "quit".into()),
+            ("?", "help".into()),
+        ],
+        Screen::Categories => vec![
+            ("↑↓/jk", "move".into()),
+            ("⏎", "open".into()),
+            ("r", "rescan".into()),
+            ("?", "help".into()),
+            ("q", "quit".into()),
+        ],
+        Screen::Groups { .. } => vec![
+            ("↑↓/jk", "move".into()),
+            ("⏎", "open".into()),
+            ("d", "delete".into()),
+            ("a", "delete all".into()),
+            ("esc", "back".into()),
+            ("?", "help".into()),
+            ("q", "quit".into()),
+        ],
+        Screen::Files { .. } => {
+            let delete = if model.marked.is_empty() {
+                "delete".into()
+            } else {
+                format!("delete {} marked", model.marked.len())
+            };
+            vec![
+                ("↑↓/jk", "move".into()),
+                ("space", "mark".into()),
+                ("⏎", delete),
+                ("d", "delete group".into()),
+                ("K", "keep this".into()),
+                ("esc", "back".into()),
+                ("?", "help".into()),
+            ]
+        }
+    }
+}
+
+fn pack_hints(hints: &[(&'static str, String)], max_width: u16) -> Vec<Line<'static>> {
+    let max_width = max_width.max(8) as usize;
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut current: Vec<Span<'static>> = Vec::new();
+    let mut used = 0usize;
+
+    for (key, action) in hints {
+        let width = key.chars().count() + action.chars().count() + 4;
+        if used > 0 && used + width > max_width {
+            lines.push(Line::from(std::mem::take(&mut current)));
+            used = 0;
+        }
+        current.push(Span::styled(
+            format!(" {key} "),
+            Style::default()
+                .fg(Color::Black)
+                .bg(ACCENT)
+                .add_modifier(Modifier::BOLD),
+        ));
+        current.push(Span::styled(
+            format!(" {action}  "),
+            Style::default().fg(Color::Gray),
+        ));
+        used += width;
+    }
+    if !current.is_empty() {
+        lines.push(Line::from(current));
+    }
+    if lines.is_empty() {
+        lines.push(Line::from(""));
+    }
+    lines
+}
+
+fn draw_footer(frame: &mut Frame, area: Rect, model: &Model) {
+    let inner_w = area.width.saturating_sub(4);
+    let mut lines = pack_hints(&footer_hints(model), inner_w);
+    if !model.status.is_empty() && !model.is_busy() {
+        let max = inner_w.max(8) as usize;
+        lines.push(Line::from(Span::styled(
+            ellipsize(&model.status, max),
+            Style::default().fg(MUTED),
+        )));
+    }
+    let para = Paragraph::new(lines).block(
+        Block::default()
+            .title(" Keys ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(MUTED)),
+    );
     frame.render_widget(para, area);
+}
+
+fn ellipsize(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 fn draw_help(frame: &mut Frame, area: Rect) {
@@ -422,10 +584,7 @@ fn draw_help(frame: &mut Frame, area: Rect) {
     );
 }
 
-fn draw_confirm(frame: &mut Frame, area: Rect, app: &App) {
-    let Some(confirm) = &app.confirm else {
-        return;
-    };
+fn draw_confirm(frame: &mut Frame, area: Rect, confirm: &Confirm) {
     let popup = centered(area, 64, 50);
     let yes_style = if confirm.yes {
         Style::default()
@@ -534,4 +693,39 @@ fn inset(area: Rect, margin_x: u16, margin_y: u16) -> Rect {
         Constraint::Length(margin_y),
     ])
     .split(h[1])[1]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pack_hints_wraps_instead_of_clipping() {
+        let hints = vec![
+            ("↑↓/jk", "move".into()),
+            ("⏎", "open".into()),
+            ("d", "delete".into()),
+            ("a", "delete all".into()),
+            ("esc", "back".into()),
+            ("?", "help".into()),
+            ("q", "quit".into()),
+        ];
+        let wide = pack_hints(&hints, 120);
+        assert_eq!(wide.len(), 1);
+
+        let narrow = pack_hints(&hints, 32);
+        assert!(
+            narrow.len() >= 2,
+            "expected wrapped key rows on a narrow terminal, got {}",
+            narrow.len()
+        );
+    }
+
+    #[test]
+    fn ellipsize_keeps_short_status() {
+        assert_eq!(ellipsize("Found 3 items", 40), "Found 3 items");
+        let long = ellipsize("Found 90 items in 84 groups plus a long warning", 20);
+        assert_eq!(long.chars().count(), 20);
+        assert!(long.ends_with('…'));
+    }
 }

@@ -21,7 +21,8 @@ Interactive CLI for macOS that finds junk, clutter, and duplicate files so you c
 - **Time Machine local snapshots** (via `tmutil`; the sealed macOS boot snapshot is never listed)
 - **iOS/iPadOS Finder backups** (whole device backup folders only)
 - **Old Messages attachments** (never `chat.db` or other Messages databases)
-- **Orphaned files** (prefs, launch agents, containers, caches, Application Support, and other Library leftovers for apps that are no longer installed)
+- **Orphaned files** (prefs, containers, caches, Application Support, and other Library leftovers for apps that are no longer installed)
+- **Stale login items** — background launch agents/daemons (and their privileged helpers) and Open at Login entries left behind by uninstalled apps
 - **Large & old files**
 - **Duplicate files** (content-hashed)
 - **Unused language files** in `~/Applications`
@@ -143,6 +144,7 @@ Click a row to highlight it. A confirm dialog appears before every delete (`←`
 - iOS backups are deleted only as a complete finished device folder, never as individual files inside `MobileSync`.
 - Colima data disks are offered only when no instance uses them: the `in_use_by` link is missing or dangling, no instance has the same name, and no instance `lima.yaml` lists the disk. This is re-checked right before deletion. Sizes are the space actually used (data disks are sparse).
 - The active Docker Desktop disk image (the `DataFolder` in `settings-store.json`) is never listed while Docker Desktop is installed. Disk images are offered only when Docker Desktop is not installed, or when a legacy/other-VM disk exists alongside the active one. Docker Desktop cache and disk deletes are refused while Docker Desktop is running.
+- Login items: only `.plist` files directly inside `~/Library/LaunchAgents`, `/Library/LaunchAgents`, and `/Library/LaunchDaemons` (plus the job's own helper in `/Library/PrivilegedHelperTools`) are removed, after `launchctl bootout`. Apple jobs are never listed, and every item is re-checked right before removal. System-wide items use the standard macOS administrator password dialog, once per cleanup — mac-cleaner never sees the password. Reading Open at Login entries (full scan only) needs Automation permission for System Events.
 - Asks for confirmation before every delete (unless `--yes`).
 - Duplicate “delete group” removes **all** copies — prefer `K` to keep one.
 
@@ -157,6 +159,34 @@ cargo clippy --all-targets -- -D warnings
 ```
 
 `Cargo.lock` is the source of truth for reproducible builds.
+
+### Benchmarks
+
+Criterion benchmarks run on folders they generate under the system temp directory, so results do not depend on what is in your home folder:
+
+```bash
+cargo bench                                  # directory sizing, duplicate hashing, scan-result queries
+cargo bench --bench scan -- --save-baseline main   # record a baseline
+cargo bench --bench scan -- --baseline main        # compare against it
+```
+
+Reports are written to `target/criterion/`.
+
+To time whole read-only scans of this Mac, install [hyperfine](https://github.com/sharkdp/hyperfine) (`brew install hyperfine`) and run:
+
+```bash
+./scripts/bench.sh                           # smart and full `list` scans, results in target/bench-scan.md
+./scripts/bench.sh --prepare 'sudo purge'    # cold filesystem cache
+```
+
+These numbers depend on disk contents and caching, so only compare runs made on the same machine.
+
+To see where time goes, profile a build that keeps symbols with [samply](https://github.com/mstange/samply):
+
+```bash
+cargo build --profile profiling
+samply record target/profiling/mac-cleaner list --mode smart
+```
 
 ## Contributing
 
