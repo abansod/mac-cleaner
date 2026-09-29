@@ -54,7 +54,7 @@ CI runs the same check on every pull request (`scripts/check-commit-msg.sh`).
 `Cargo.toml` is the version source.
 
 1. The pull request workflow bumps `Cargo.toml` and `Cargo.lock` from the Commitizen messages above and commits that on the pull request branch.
-2. After that pull request merges, the main branch workflow reads `Cargo.toml` and creates GitHub release `v<version>` when that tag does not already exist.
+2. After that pull request merges, CI tests `main`. When those tests pass, it reads `Cargo.toml` and creates GitHub release `v<version>` when that tag does not already exist. A failed test does not create a tag.
 3. Publishing that release builds the universal macOS binary and attaches it to the release.
 
 The package version is `0.0.8`, matching the latest tag. The next bump is the next release.
