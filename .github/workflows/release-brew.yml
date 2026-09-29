@@ -1,5 +1,8 @@
 name: Release & Homebrew tap
 
+# release-tag.yml creates v<Cargo.toml version> when that tag is new.
+# This workflow builds the binary for that release.
+
 on:
   release:
     types: [published]

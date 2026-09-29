@@ -14,6 +14,8 @@ jobs:
           fetch-depth: 0
       - name: Check version bump rules
         run: ./scripts/version-bump.sh --self-test
+      - name: Check release tag rules
+        run: ./scripts/create-release-tag.sh --self-test
       - name: Check commit message rules
         run: ./scripts/check-commit-msg.sh --self-test
       - name: Check pull request commit messages
@@ -33,8 +35,8 @@ jobs:
           cargo run -- --version
           cargo run -- categories
 
-  # Version is chosen here, on the pull request, from Commitizen messages.
-  # The release workflow publishes that version.
+  # Writes the package version into Cargo.toml and Cargo.lock on the pull request.
+  # After merge, .github/workflows/release-tag.yml tags v<version> from Cargo.toml.
   version:
     name: Bump version
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository

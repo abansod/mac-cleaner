@@ -14,7 +14,7 @@ cargo test
 
 ## Commit messages
 
-Use [Commitizen](https://commitizen-tools.github.io/commitizen/) conventional commits. The pull request workflow reads these messages and bumps `Cargo.toml` and `Cargo.lock`.
+Use [Commitizen](https://commitizen-tools.github.io/commitizen/) conventional commits. The pull request workflow reads these messages and writes the new package version into `Cargo.toml` and `Cargo.lock` on the pull request branch.
 
 ```text
 type(scope): description
@@ -49,6 +49,12 @@ That links `.git/hooks/commit-msg` to `.githooks/commit-msg`. `Merge …`, `fixu
 
 CI runs the same check on every pull request (`scripts/check-commit-msg.sh`).
 
-## After a release
+## Release
 
-Publishing a GitHub release builds the universal macOS binary and attaches it to the release. The package version is the one already chosen on the pull request.
+`Cargo.toml` is the version source.
+
+1. The pull request workflow bumps `Cargo.toml` and `Cargo.lock` from the Commitizen messages above and commits that on the pull request branch.
+2. After that pull request merges, the main branch workflow reads `Cargo.toml` and creates GitHub release `v<version>` when that tag does not already exist.
+3. Publishing that release builds the universal macOS binary and attaches it to the release.
+
+The package version is `0.0.8`, matching the latest tag. The next bump is the next release.
