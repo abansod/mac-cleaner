@@ -12,7 +12,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: release-brew-${{ github.event.release.tag_name || inputs.tag }}
@@ -94,6 +93,7 @@ jobs:
   homebrew:
     name: Publish Homebrew formula to tap
     needs: build
+    if: vars.HOMEBREW_TAP != '' && vars.HOMEBREW_TAP != github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main (formula lives here)
@@ -112,47 +112,7 @@ jobs:
           echo "----- Formula -----"
           cat Formula/mac-cleaner.rb
 
-      # main is protected, so the formula lands through a pull request.
-      # Package version is already set by the PR pipeline.
-      - name: Open a pull request for the formula
-        if: ${{ vars.HOMEBREW_TAP == '' || vars.HOMEBREW_TAP == github.repository }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.build.outputs.tag }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- Formula/mac-cleaner.rb; then
-            echo "Formula already up to date."
-            exit 0
-          fi
-          cp Formula/mac-cleaner.rb /tmp/mac-cleaner.rb
-          git checkout -- Formula/mac-cleaner.rb
-          BRANCH="chore/brew-${TAG}"
-          if git fetch origin "refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"; then
-            git checkout -B "${BRANCH}" "origin/${BRANCH}"
-          else
-            git checkout -B "${BRANCH}"
-          fi
-          cp /tmp/mac-cleaner.rb Formula/mac-cleaner.rb
-          git add Formula/mac-cleaner.rb
-          if git diff --cached --quiet; then
-            echo "Formula branch already has this update."
-          else
-            git commit -m "chore(brew): bump mac-cleaner to ${TAG}"
-            git push -u origin "HEAD:${BRANCH}"
-          fi
-          count="$(gh pr list --head "${BRANCH}" --base main --json number --jq 'length')"
-          if [[ "${count}" != "0" ]]; then
-            echo "Pull request for ${BRANCH} already exists."
-            exit 0
-          fi
-          gh pr create --base main --head "${BRANCH}" \
-            --title "chore(brew): bump mac-cleaner to ${TAG}" \
-            --body "Points the Homebrew formula at the ${TAG} release build. The package version was chosen on the feature pull request from Commitizen commit messages."
-
       - name: Publish formula to external tap
-        if: ${{ vars.HOMEBREW_TAP != '' && vars.HOMEBREW_TAP != github.repository }}
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           TAP_REPO: ${{ vars.HOMEBREW_TAP }}
