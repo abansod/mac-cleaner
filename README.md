@@ -192,16 +192,7 @@ samply record target/profiling/mac-cleaner list --mode smart
 
 Bug reports and pull requests are welcome on [GitHub](https://github.com/abansod/mac-cleaner). Please run the development commands above before opening a PR.
 
-Use [Commitizen](https://commitizen-tools.github.io/commitizen/) conventional commit messages. The pull request workflow reads them and bumps `Cargo.toml` (and `Cargo.lock`) on the PR branch:
-
-| Message | Version bump |
-| --- | --- |
-| `feat:` | minor (`0.0.5` → `0.1.0`) |
-| `fix:`, `refactor:`, `perf:` | patch (`0.0.5` → `0.0.6`) |
-| `type!:` or a `BREAKING CHANGE:` footer | major (`0.0.5` → `1.0.0`) |
-| `chore:`, `docs:`, `style:`, `test:`, `build:`, `ci:` | none |
-
-The highest bump in the pull request wins. CI records it as `chore(release): bump version to …`, and that commit is ignored the next time the check runs.
+Commit messages use Commitizen conventional commits, checked by a `commit-msg` hook. See [CONTRIBUTING.md](CONTRIBUTING.md) for the format, the version bump, and how to install the hook.
 
 ## License
 

@@ -10,8 +10,18 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Check version bump rules
         run: ./scripts/version-bump.sh --self-test
+      - name: Check commit message rules
+        run: ./scripts/check-commit-msg.sh --self-test
+      - name: Check pull request commit messages
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          base="$(git merge-base HEAD "origin/${{ github.base_ref }}")"
+          ./scripts/check-commit-msg.sh --range "${base}..HEAD"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
