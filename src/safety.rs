@@ -135,6 +135,18 @@ fn dir_size(dir: &Path) -> u64 {
     file_bytes.saturating_add(dir_bytes)
 }
 
+/// Bytes actually allocated on disk (sparse-aware), never following symlinks.
+pub fn allocated_size(path: &Path) -> u64 {
+    WalkDir::new(path)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter_map(|entry| entry.path().symlink_metadata().ok())
+        .map(|meta| meta.blocks().saturating_mul(512))
+        .sum()
+}
+
 pub fn is_writable(path: &Path) -> bool {
     let Ok(c_path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
         return false;

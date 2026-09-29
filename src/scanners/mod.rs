@@ -1,4 +1,6 @@
 mod caches;
+mod colima;
+mod docker_desktop;
 mod downloads_browser;
 mod duplicates;
 mod hidden_space;
@@ -27,6 +29,10 @@ pub fn all_scanners() -> Vec<Box<dyn Scanner>> {
         Box::new(downloads_browser::BrowserCacheScanner),
         Box::new(xcode_mail_leftovers::XcodeScanner),
         Box::new(xcode_mail_leftovers::MailScanner),
+        Box::new(colima::ColimaCacheScanner),
+        Box::new(colima::ColimaDiskScanner),
+        Box::new(docker_desktop::DockerCacheScanner),
+        Box::new(docker_desktop::DockerDiskScanner),
         Box::new(hidden_space::LocalSnapshotScanner),
         Box::new(hidden_space::IosBackupScanner),
         Box::new(hidden_space::MessagesAttachmentScanner),
@@ -50,6 +56,9 @@ pub fn smart_scanners() -> Vec<Box<dyn Scanner>> {
         Box::new(downloads_browser::BrowserCacheScanner),
         Box::new(xcode_mail_leftovers::XcodeScanner),
         Box::new(xcode_mail_leftovers::MailScanner),
+        // Unused VM disks hold container volumes, so they are full-scan only.
+        Box::new(colima::ColimaCacheScanner),
+        Box::new(docker_desktop::DockerCacheScanner),
         Box::new(hidden_space::LocalSnapshotScanner),
         Box::new(hidden_space::IosBackupScanner),
         Box::new(login_items::LoginItemsScanner {

@@ -345,7 +345,11 @@ fn delete_all_in_category(model: &mut Model) {
     let mut body = reclaim_warnings(&items);
     if matches!(
         category,
-        Category::LocalSnapshots | Category::IosBackups | Category::LoginItems
+        Category::LocalSnapshots
+            | Category::IosBackups
+            | Category::LoginItems
+            | Category::ColimaDisks
+            | Category::DockerDisks
     ) {
         body.insert(
             0,
@@ -546,6 +550,48 @@ fn reclaim_warnings(items: &[FileItem]) -> Vec<String> {
     {
         extra.push(
             "Removes the Open at Login entry via System Events; macOS may ask to allow Automation."
+                .into(),
+        );
+    }
+    if items
+        .iter()
+        .any(|item| item.category == Category::ColimaDisks)
+    {
+        extra.push(
+            "Permanently deletes that Colima profile's Docker images, containers, and volumes."
+                .into(),
+        );
+        extra.push(
+            "Each disk is re-checked; a disk attached to any Colima instance is refused.".into(),
+        );
+    }
+    if items
+        .iter()
+        .any(|item| item.category == Category::ColimaCache)
+    {
+        extra.push(
+            "Removes downloaded Colima VM images. Existing VMs keep working; new ones re-download."
+                .into(),
+        );
+    }
+    if items
+        .iter()
+        .any(|item| item.category == Category::DockerDisks)
+    {
+        extra.push(
+            "Permanently deletes every Docker image, container, and volume stored in that disk image.".into(),
+        );
+        extra.push(
+            "Re-checked first: refused while Docker Desktop runs or if it may still use the disk."
+                .into(),
+        );
+    }
+    if items
+        .iter()
+        .any(|item| item.category == Category::DockerCache)
+    {
+        extra.push(
+            "Removes Docker Desktop app and dashboard caches. Refused while Docker Desktop runs."
                 .into(),
         );
     }

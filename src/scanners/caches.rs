@@ -5,7 +5,8 @@ use crate::safety::{is_writable, library_dir, list_children, safe_size};
 
 use super::Scanner;
 
-const SKIP_CACHE_NAMES: &[&str] = &[".DS_Store", "CloudKit"];
+/// `colima` and `com.docker.docker` are listed under their own categories.
+const SKIP_CACHE_NAMES: &[&str] = &[".DS_Store", "CloudKit", "colima", "com.docker.docker"];
 
 pub struct UserCacheScanner;
 
