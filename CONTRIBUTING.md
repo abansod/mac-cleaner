@@ -55,6 +55,6 @@ CI runs the same check on every pull request (`scripts/check-commit-msg.sh`).
 
 1. The pull request workflow bumps `Cargo.toml` and `Cargo.lock` from the Commitizen messages above and commits that on the pull request branch.
 2. After that pull request merges, CI tests `main`. When those tests pass, it reads `Cargo.toml` and creates GitHub release `v<version>` when that tag does not already exist. A failed test does not create a tag.
-3. Publishing that release builds the universal macOS binary and attaches it to the release.
+3. Publishing that release builds the universal macOS binary, attaches it to the release, and merges an update to `Formula/mac-cleaner.rb` so Homebrew installs that build.
 
-The package version is `0.0.8`, matching the latest tag. The next bump is the next release.
+The package version is `0.0.9`. Merging this pull request creates tag `v0.0.9` after tests pass, then publishes the formula.
