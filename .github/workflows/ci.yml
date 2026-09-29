@@ -36,7 +36,7 @@ jobs:
           cargo run -- categories
 
   # Writes the package version into Cargo.toml and Cargo.lock on the pull request.
-  # After merge, .github/workflows/release-tag.yml tags v<version> from Cargo.toml.
+  # After merge, the tag job below creates v<version> only when test succeeds.
   version:
     name: Bump version
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -67,3 +67,20 @@ jobs:
           git add Cargo.toml Cargo.lock
           git commit -m "chore(release): bump version to ${version}"
           git push origin "HEAD:${{ github.head_ref }}"
+
+  tag:
+    name: Create tag from Cargo.toml
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: tag-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create release tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/create-release-tag.sh
