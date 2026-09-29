@@ -141,6 +141,9 @@ fn consider_child(
     if raw.starts_with('.') || SKIP_NAMES.contains(&raw.as_str()) {
         return;
     }
+    if has_dedicated_category(&child) {
+        return;
+    }
     let ident = normalize_ident(&raw);
     if ident.is_empty() || should_skip_ident(&ident) {
         return;
@@ -171,6 +174,16 @@ fn consider_child(
         group.title = display_title(&ident, &raw);
     }
     group.items.push(item);
+}
+
+/// Colima is a CLI tool (no .app bundle), and Docker Desktop's container holds
+/// its VM disk; both are handled by dedicated, allowlisted categories.
+fn has_dedicated_category(child: &Path) -> bool {
+    let home = home_dir();
+    child == crate::colima::cache_root()
+        || child == crate::docker_desktop::cache_root(&home)
+        || child == crate::docker_desktop::container_root(&home)
+        || child == crate::docker_desktop::app_support(&home)
 }
 
 #[derive(Default)]

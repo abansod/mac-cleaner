@@ -1,4 +1,6 @@
 mod cli;
+mod colima;
+mod docker_desktop;
 mod engine;
 mod macos_space;
 mod models;

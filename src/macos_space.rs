@@ -305,6 +305,12 @@ fn reclaim_hidden_or_normal_path(
         Category::LocalSnapshots => {
             bail!("Refused (snapshots cannot be deleted as files)");
         }
+        Category::ColimaCache
+        | Category::ColimaDisks
+        | Category::DockerCache
+        | Category::DockerDisks => {
+            return reclaim_container_vm(item, on_progress);
+        }
         _ => {}
     }
     if !is_safe_to_delete(&item.path) {
@@ -316,6 +322,49 @@ fn reclaim_hidden_or_normal_path(
         safe_size(&item.path)
     };
     crate::safety::delete_path_with_progress(&item.path, on_progress)?;
+    Ok(size)
+}
+
+/// Colima / Docker Desktop items are re-validated, and progress reports
+/// allocated bytes because VM disks are sparse (a 100 GiB disk may use a few GB).
+fn reclaim_container_vm(item: &FileItem, on_progress: &mut dyn FnMut(&str, u64)) -> Result<u64> {
+    let label = match item.category {
+        Category::ColimaDisks => {
+            crate::colima::check_disk_reclaimable(&item.path)?;
+            "Colima data disk"
+        }
+        Category::ColimaCache => {
+            if !crate::colima::is_cache_item(&item.path) {
+                bail!("Refused (not inside ~/Library/Caches/colima)");
+            }
+            "Colima cache"
+        }
+        Category::DockerDisks => {
+            crate::docker_desktop::check_disk_reclaimable(&item.path)?;
+            "Docker Desktop disk image"
+        }
+        Category::DockerCache => {
+            crate::docker_desktop::check_cache_reclaimable(&item.path)?;
+            "Docker Desktop cache"
+        }
+        _ => bail!("Refused (not a container VM item)"),
+    };
+    if !is_safe_to_delete(&item.path) {
+        bail!("Refused (protected)");
+    }
+    let size = crate::safety::allocated_size(&item.path);
+    let name = item
+        .path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let message = format!(
+        "Deleting {label} {name} ({})…",
+        crate::safety::format_bytes(size)
+    );
+    on_progress(&message, 0);
+    crate::safety::delete_path_with_progress(&item.path, &mut |_, _| {})?;
+    on_progress(&message, size);
     Ok(size)
 }
 

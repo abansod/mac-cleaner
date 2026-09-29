@@ -14,6 +14,10 @@ Interactive CLI for macOS that finds junk, clutter, and duplicate files so you c
 - **Browser caches** (Safari, Chrome, Firefox, Edge, Brave, Arc)
 - **Xcode junk** (DerivedData, simulators, SwiftPM, CocoaPods)
 - **Mail downloads**
+- **Colima cache** (downloaded VM images in `~/Library/Caches/colima`)
+- **Unused Colima data disks** (`~/.colima/_lima/_disks/<name>` left by `colima delete`; full scan only)
+- **Docker Desktop cache** (`~/Library/Caches/com.docker.docker` and the dashboard's Electron caches)
+- **Unused Docker Desktop disk images** (`Docker.raw` / `Docker.qcow2` left after uninstalling, or superseded legacy/moved disks; full scan only)
 - **Time Machine local snapshots** (via `tmutil`; the sealed macOS boot snapshot is never listed)
 - **iOS/iPadOS Finder backups** (whole device backup folders only)
 - **Old Messages attachments** (never `chat.db` or other Messages databases)
@@ -137,6 +141,8 @@ Click a row to highlight it. A confirm dialog appears before every delete (`←`
 - Refuses macOS user-data stores that would break the OS or iCloud: Keychains, TCC, Mail store, Photos libraries, `chat.db`, Mobile Documents / CloudStorage.
 - Time Machine snapshots are removed only with `tmutil deletelocalsnapshots <YYYY-MM-DD-HHMMSS>` — never `diskutil apfs deleteSnapshot`, never a mount point such as `/`.
 - iOS backups are deleted only as a complete finished device folder, never as individual files inside `MobileSync`.
+- Colima data disks are offered only when no instance uses them: the `in_use_by` link is missing or dangling, no instance has the same name, and no instance `lima.yaml` lists the disk. This is re-checked right before deletion. Sizes are the space actually used (data disks are sparse).
+- The active Docker Desktop disk image (the `DataFolder` in `settings-store.json`) is never listed while Docker Desktop is installed. Disk images are offered only when Docker Desktop is not installed, or when a legacy/other-VM disk exists alongside the active one. Docker Desktop cache and disk deletes are refused while Docker Desktop is running.
 - Asks for confirmation before every delete (unless `--yes`).
 - Duplicate “delete group” removes **all** copies — prefer `K` to keep one.
 

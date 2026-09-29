@@ -20,10 +20,14 @@ pub enum Category {
     LocalSnapshots,
     IosBackups,
     MessagesAttachments,
+    ColimaCache,
+    ColimaDisks,
+    DockerCache,
+    DockerDisks,
 }
 
 impl Category {
-    pub const ALL: [Category; 16] = [
+    pub const ALL: [Category; 20] = [
         Category::SystemCache,
         Category::UserCache,
         Category::Logs,
@@ -40,6 +44,10 @@ impl Category {
         Category::LocalSnapshots,
         Category::IosBackups,
         Category::MessagesAttachments,
+        Category::ColimaCache,
+        Category::ColimaDisks,
+        Category::DockerCache,
+        Category::DockerDisks,
     ];
 
     pub fn label(self) -> &'static str {
@@ -60,6 +68,10 @@ impl Category {
             Category::LocalSnapshots => "Time Machine Snapshots",
             Category::IosBackups => "iOS Device Backups",
             Category::MessagesAttachments => "Messages Attachments",
+            Category::ColimaCache => "Colima Cache",
+            Category::ColimaDisks => "Unused Colima Data Disks",
+            Category::DockerCache => "Docker Desktop Cache",
+            Category::DockerDisks => "Unused Docker Desktop Disk Images",
         }
     }
 
@@ -104,6 +116,18 @@ impl Category {
             }
             Category::MessagesAttachments => {
                 "Old files under ~/Library/Messages/Attachments. chat.db and other Messages databases are never touched."
+            }
+            Category::ColimaCache => {
+                "Downloaded VM images in ~/Library/Caches/colima. Existing VMs keep working; Colima re-downloads images when it needs them."
+            }
+            Category::ColimaDisks => {
+                "Colima data disks (~/.colima/_lima/_disks) that no instance uses, usually left by `colima delete`. Holds that profile's images, containers, and volumes."
+            }
+            Category::DockerCache => {
+                "~/Library/Caches/com.docker.docker and Docker Desktop dashboard caches. Rebuilt on next launch; quit Docker Desktop first."
+            }
+            Category::DockerDisks => {
+                "Docker.raw / Docker.qcow2 VM disks Docker Desktop no longer uses (app uninstalled, legacy, or moved). The active disk is never listed."
             }
         }
     }
