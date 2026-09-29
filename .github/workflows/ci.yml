@@ -10,6 +10,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Check version bump rules
+        run: ./scripts/version-bump.sh --self-test
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -20,3 +22,36 @@ jobs:
           cargo test
           cargo run -- --version
           cargo run -- categories
+
+  # Version is chosen here, on the pull request, from Commitizen messages.
+  # The release workflow publishes that version.
+  version:
+    name: Bump version
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: version-bump-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Fetch base branch
+        run: git fetch origin "${{ github.base_ref }}"
+      - name: Apply Commitizen version bump
+        run: ./scripts/version-bump.sh "origin/${{ github.base_ref }}"
+      - name: Commit version bump
+        run: |
+          if git diff --quiet -- Cargo.toml Cargo.lock; then
+            echo "Version already matches the Commitizen bump."
+            exit 0
+          fi
+          version="$(awk '/^version = "/ { gsub(/^version = "/, "", $0); gsub(/".*$/, "", $0); print; exit }' Cargo.toml)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore(release): bump version to ${version}"
+          git push origin "HEAD:${{ github.head_ref }}"
