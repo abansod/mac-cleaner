@@ -1,0 +1,54 @@
+# Contributing
+
+Bug reports and pull requests are welcome on [GitHub](https://github.com/abansod/mac-cleaner).
+
+## Before you open a pull request
+
+Run the checks in the [Development](README.md#development) section:
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+## Commit messages
+
+Use [Commitizen](https://commitizen-tools.github.io/commitizen/) conventional commits. The pull request workflow reads these messages and bumps `Cargo.toml` and `Cargo.lock`.
+
+```text
+type(scope): description
+
+Optional body, separated from the subject by a blank line.
+```
+
+`scope` is optional. Mark a breaking change with `!` before the colon (`feat!:` or `feat(scan)!:`), or with a `BREAKING CHANGE:` footer.
+
+| Message | Version bump |
+| --- | --- |
+| `feat:` | minor (`0.0.5` → `0.1.0`) |
+| `fix:`, `refactor:`, `perf:` | patch (`0.0.5` → `0.0.6`) |
+| `type!:` or a `BREAKING CHANGE:` footer | major (`0.0.5` → `1.0.0`) |
+| `chore:`, `docs:`, `style:`, `test:`, `build:`, `ci:`, `revert:` | none |
+
+Allowed types: `feat`, `fix`, `refactor`, `perf`, `chore`, `docs`, `style`, `test`, `build`, `ci`, `revert`.
+
+The highest bump in the pull request wins. CI records it as `chore(release): bump version to …`, and that commit is ignored the next time the check runs.
+
+Keep the subject within 72 characters when you can. The hook rejects a subject longer than 100 characters.
+
+### Commit-msg hook
+
+Git checks the message with the `commit-msg` hook, after you write it and before the commit is created. Install it once per clone:
+
+```bash
+./scripts/install-git-hooks.sh
+```
+
+That links `.git/hooks/commit-msg` to `.githooks/commit-msg`. `Merge …`, `fixup!`, and `squash!` subjects are left alone, as is git's default `Revert "…"` subject.
+
+CI runs the same check on every pull request (`scripts/check-commit-msg.sh`).
+
+## After a release
+
+Publishing a GitHub release builds the macOS binary. The release workflow then opens a pull request that points `Formula/mac-cleaner.rb` at that build. Merge that pull request so Homebrew picks up the new version.

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Reject commits whose message is not a Commitizen conventional commit.
+# Installed by scripts/install-git-hooks.sh.
+set -euo pipefail
+
+root=$(git rev-parse --show-toplevel)
+exec "$root/scripts/check-commit-msg.sh" "$1"

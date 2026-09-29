@@ -192,6 +192,8 @@ samply record target/profiling/mac-cleaner list --mode smart
 
 Bug reports and pull requests are welcome on [GitHub](https://github.com/abansod/mac-cleaner). Please run the development commands above before opening a PR.
 
+Commit messages use Commitizen conventional commits, checked by a `commit-msg` hook. See [CONTRIBUTING.md](CONTRIBUTING.md) for the format, the version bump, and how to install the hook.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
