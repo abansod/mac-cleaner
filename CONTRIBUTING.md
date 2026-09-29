@@ -51,4 +51,4 @@ CI runs the same check on every pull request (`scripts/check-commit-msg.sh`).
 
 ## After a release
 
-Publishing a GitHub release builds the macOS binary. The release workflow then opens a pull request that points `Formula/mac-cleaner.rb` at that build. Merge that pull request so Homebrew picks up the new version.
+Publishing a GitHub release builds the universal macOS binary and attaches it to the release. The package version is the one already chosen on the pull request.
