@@ -30,10 +30,12 @@ pub enum Category {
     ColimaDisks,
     DockerCache,
     DockerDisks,
+    PodmanCache,
+    PodmanDisks,
 }
 
 impl Category {
-    pub const ALL: [Category; 21] = [
+    pub const ALL: [Category; 23] = [
         Category::SystemCache,
         Category::UserCache,
         Category::Logs,
@@ -55,6 +57,8 @@ impl Category {
         Category::ColimaDisks,
         Category::DockerCache,
         Category::DockerDisks,
+        Category::PodmanCache,
+        Category::PodmanDisks,
     ];
 
     pub fn label(self) -> &'static str {
@@ -78,6 +82,8 @@ impl Category {
             Category::MessagesAttachments => "Messages Attachments",
             Category::ColimaCache => "Colima Cache",
             Category::ColimaDisks => "Unused Colima Data Disks",
+            Category::PodmanCache => "Podman Cache",
+            Category::PodmanDisks => "Unused Podman VM Disks",
             Category::DockerCache => "Docker Desktop Cache",
             Category::DockerDisks => "Unused Docker Desktop Disk Images",
         }
@@ -134,6 +140,8 @@ impl Category {
             Category::ColimaDisks => {
                 "Colima data disks (~/.colima/_lima/_disks) that no instance uses, usually left by `colima delete`. Holds that profile's images, containers, and volumes."
             }
+            Category::PodmanCache => "Downloaded Podman VM images; rebuilt when needed. Stop Podman machines first.",
+            Category::PodmanDisks => "VM disks no configured Podman machine uses. Contains images, containers, and volumes; full scans only.",
             Category::DockerCache => {
                 "~/Library/Caches/com.docker.docker and Docker Desktop dashboard caches. Rebuilt on next launch; quit Docker Desktop first."
             }

@@ -18,6 +18,7 @@ Interactive CLI for macOS that finds junk, clutter, and duplicate files so you c
 - **Unused Colima data disks** (`~/.colima/_lima/_disks/<name>` left by `colima delete`; full scan only)
 - **Docker Desktop cache** (`~/Library/Caches/com.docker.docker` and the dashboard's Electron caches)
 - **Unused Docker Desktop disk images** (`Docker.raw` / `Docker.qcow2` left after uninstalling, or superseded legacy/moved disks; full scan only)
+- **Podman machine download caches** and **unused VM disks** (AppleHV, QEMU, libkrun; disks in full scans only)
 - **Time Machine local snapshots** (via `tmutil`; the sealed macOS boot snapshot is never listed)
 - **iOS/iPadOS Finder backups** (whole device backup folders only)
 - **Old Messages attachments** (never `chat.db` or other Messages databases)
@@ -43,6 +44,7 @@ Installs a prebuilt universal macOS binary (Apple Silicon and Intel):
 
 ```bash
 brew tap abansod/mac-cleaner https://github.com/abansod/mac-cleaner
+brew trust abansod/mac-cleaner
 brew install mac-cleaner
 ```
 
@@ -144,6 +146,7 @@ Click a row to highlight it. A confirm dialog appears before every delete (`←`
 - iOS backups are deleted only as a complete finished device folder, never as individual files inside `MobileSync`.
 - Colima data disks are offered only when no instance uses them: the `in_use_by` link is missing or dangling, no instance has the same name, and no instance `lima.yaml` lists the disk. This is re-checked right before deletion. Sizes are the space actually used (data disks are sparse).
 - The active Docker Desktop disk image (the `DataFolder` in `settings-store.json`) is never listed while Docker Desktop is installed. Disk images are offered only when Docker Desktop is not installed, or when a legacy/other-VM disk exists alongside the active one. Docker Desktop cache and disk deletes are refused while Docker Desktop is running.
+- Podman: only unreferenced VM disks and individual machine download cache files are offered. Configured machines (including stopped machines) keep their disks. Unreadable or unknown machine configurations withhold cleanup; configurations are checked again before deletion. Cleanup is refused while VM helpers or Podman Desktop run. XDG data/config overrides are supported; sizes reflect allocated space.
 - Login items: only `.plist` files directly inside `~/Library/LaunchAgents`, `/Library/LaunchAgents`, and `/Library/LaunchDaemons` (plus the job's own helper in `/Library/PrivilegedHelperTools`) are removed, after `launchctl bootout`. Apple jobs are never listed, and every item is re-checked right before removal. System-wide items use the standard macOS administrator password dialog, once per cleanup — mac-cleaner never sees the password. Reading Open at Login entries (full scan only) needs Automation permission for System Events.
 - Asks for confirmation before every delete (unless `--yes`).
 - Duplicate “delete group” removes **all** copies — prefer `K` to keep one.

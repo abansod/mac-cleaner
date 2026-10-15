@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "mac-cleaner"
-version = "0.0.9"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -599,6 +599,7 @@ dependencies = [
  "ratatui",
  "rayon",
  "rustix",
+ "serde_json",
  "sha2",
  "walkdir",
 ]

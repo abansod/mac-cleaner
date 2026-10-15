@@ -5,6 +5,7 @@ mod engine;
 mod login_items;
 mod macos_space;
 pub mod models;
+mod podman;
 pub mod safety;
 pub mod scanners;
 mod ui;

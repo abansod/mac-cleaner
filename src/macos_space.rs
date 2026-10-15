@@ -314,7 +314,9 @@ fn reclaim_hidden_or_normal_path(
         Category::ColimaCache
         | Category::ColimaDisks
         | Category::DockerCache
-        | Category::DockerDisks => {
+        | Category::DockerDisks
+        | Category::PodmanCache
+        | Category::PodmanDisks => {
             return reclaim_container_vm(item, on_progress);
         }
         _ => {}
@@ -352,6 +354,10 @@ fn reclaim_container_vm(item: &FileItem, on_progress: &mut dyn FnMut(&str, u64))
         Category::DockerCache => {
             crate::docker_desktop::check_cache_reclaimable(&item.path)?;
             "Docker Desktop cache"
+        }
+        Category::PodmanCache | Category::PodmanDisks => {
+            crate::podman::check_reclaimable(&item.path, item.category == Category::PodmanCache)?;
+            "Podman VM data"
         }
         _ => bail!("Refused (not a container VM item)"),
     };
