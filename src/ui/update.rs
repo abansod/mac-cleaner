@@ -350,6 +350,7 @@ fn delete_all_in_category(model: &mut Model) {
             | Category::LoginItems
             | Category::ColimaDisks
             | Category::DockerDisks
+            | Category::PodmanDisks
     ) {
         body.insert(
             0,
@@ -594,6 +595,15 @@ fn reclaim_warnings(items: &[FileItem]) -> Vec<String> {
             "Removes Docker Desktop app and dashboard caches. Refused while Docker Desktop runs."
                 .into(),
         );
+    }
+    if items.iter().any(|i| i.category == Category::PodmanDisks) {
+        extra.push("Permanently deletes all images, containers, and volumes in the Podman VM disk. Every machine configuration is checked again before removal.".into());
+    }
+    if items
+        .iter()
+        .any(|i| matches!(i.category, Category::PodmanCache | Category::PodmanDisks))
+    {
+        extra.push("Stop Podman machines and quit Podman Desktop first. Download caches are rebuilt when needed.".into());
     }
     extra
 }

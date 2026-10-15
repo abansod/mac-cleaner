@@ -7,6 +7,7 @@ mod hidden_space;
 mod login_items;
 mod logs_trash;
 pub(crate) mod orphaned;
+mod podman;
 mod xcode_mail_leftovers;
 
 use std::path::PathBuf;
@@ -32,7 +33,9 @@ pub fn all_scanners() -> Vec<Box<dyn Scanner>> {
         Box::new(colima::ColimaCacheScanner),
         Box::new(colima::ColimaDiskScanner),
         Box::new(docker_desktop::DockerCacheScanner),
+        Box::new(podman::PodmanCacheScanner),
         Box::new(docker_desktop::DockerDiskScanner),
+        Box::new(podman::PodmanDiskScanner),
         Box::new(hidden_space::LocalSnapshotScanner),
         Box::new(hidden_space::IosBackupScanner),
         Box::new(hidden_space::MessagesAttachmentScanner),
@@ -59,6 +62,7 @@ pub fn smart_scanners() -> Vec<Box<dyn Scanner>> {
         // Unused VM disks hold container volumes, so they are full-scan only.
         Box::new(colima::ColimaCacheScanner),
         Box::new(docker_desktop::DockerCacheScanner),
+        Box::new(podman::PodmanCacheScanner),
         Box::new(hidden_space::LocalSnapshotScanner),
         Box::new(hidden_space::IosBackupScanner),
         Box::new(login_items::LoginItemsScanner {
